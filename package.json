@@ -1,0 +1,24 @@
+{
+  "name": "prolific-store",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "npm@11.17.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "turbo": "^2.10.0"
+  },
+  "dependencies": {
+    "@nestjs/mapped-types": "^2.1.1"
+  }
+}
