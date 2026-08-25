@@ -3,20 +3,20 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-
 import { Prisma } from '@prisma/client';
-
 import { PrismaService } from '../prisma/prisma.service';
-
 import { CreateProductDto } from './dto/create-product.dto';
-
 import { UpdateProductDto } from './dto/update-product.dto';
-
 import { ProductQueryDto } from './dto/product-query.dto';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { ProductMapper } from './product.mapper';
 
 @Injectable()
 export class ProductsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cloudinaryService: CloudinaryService,
+  ) {}
 
   async create(dto: CreateProductDto) {
     const category = await this.prisma.category.findUnique({
@@ -53,7 +53,7 @@ export class ProductsService {
       throw new BadRequestException('Stock cannot be negative');
     }
 
-    if (dto.comparePrice && dto.comparePrice < dto.price) {
+    if (dto.comparePrice !== undefined && dto.comparePrice < dto.price) {
       throw new BadRequestException('Compare price must be greater than price');
     }
 
@@ -160,6 +160,11 @@ export class ProductsService {
         take: limit,
         include: {
           category: true,
+          images: {
+            orderBy: {
+              position: 'asc',
+            },
+          },
         },
         orderBy,
       }),
@@ -170,15 +175,14 @@ export class ProductsService {
     ]);
 
     return {
-      data: products,
+      data: products.map((product) =>
+        ProductMapper.toResponse(product, this.cloudinaryService),
+      ),
 
       meta: {
         total,
-
         page,
-
         limit,
-
         totalPages: Math.ceil(total / limit),
       },
     };
@@ -191,6 +195,11 @@ export class ProductsService {
       },
       include: {
         category: true,
+        images: {
+          orderBy: {
+            position: 'asc',
+          },
+        },
       },
     });
 
@@ -198,7 +207,7 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
-    return product;
+    return ProductMapper.toResponse(product, this.cloudinaryService);
   }
 
   async update(id: string, dto: UpdateProductDto) {

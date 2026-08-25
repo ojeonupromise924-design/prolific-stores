@@ -6,8 +6,8 @@ import { JwtStrategy } from './jwt.strategy';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PrismaModule } from '../prisma/prisma.module';
-
 import { RolesGuard } from './guards/roles.guard';
+import { CartModule } from '../cart/cart.module';
 
 @Module({
   imports: [
@@ -19,6 +19,7 @@ import { RolesGuard } from './guards/roles.guard';
         expiresIn: '7d',
       },
     }),
+    CartModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, RolesGuard],

@@ -29,6 +29,8 @@ model User {
   lastLogin     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  carts Cart[]
 }
 
 model Category {
@@ -61,12 +63,114 @@ model Product {
   price            Decimal  @db.Decimal(10, 2)
   comparePrice     Decimal? @db.Decimal(10, 2)
   stock            Int      @default(0)
-  image            String?
+
+  image            String?      // Temporary (legacy)
+  images           ProductImage[]
+  variants ProductVariant[]
+
   brand            String?
   isFeatured       Boolean  @default(false)
   isPublished      Boolean  @default(false)
+
   categoryId       String
   category         Category @relation(fields: [categoryId], references: [id])
+
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+model ProductVariant {
+  id           String   @id @default(uuid())
+
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  name         String
+
+  sku          String   @unique
+
+  price        Decimal  @db.Decimal(10, 2)
+
+  comparePrice Decimal? @db.Decimal(10, 2)
+
+  stock        Int      @default(0)
+
+  isDefault    Boolean  @default(false)
+
+  isActive     Boolean  @default(true)
+
+  cartItems CartItem[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([productId])
+}
+
+model ProductImage {
+  id         String   @id @default(uuid())
+
+  url        String
+
+  publicId   String
+
+  altText    String?
+
+  isPrimary  Boolean  @default(false)
+
+  position   Int      @default(0)
+
+  productId  String
+
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime @default(now())
+
+  updatedAt  DateTime @updatedAt
+}
+
+enum CartStatus {
+  ACTIVE
+  CONVERTED
+  ABANDONED
+}
+
+model Cart {
+  id         String     @id @default(uuid())
+
+  userId     String?
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  guestToken String?    @unique
+
+  status     CartStatus @default(ACTIVE)
+
+  items      CartItem[]
+
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([userId, status])
+}
+model CartItem {
+  id          String         @id @default(uuid())
+
+  cartId      String
+  cart        Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  variantId   String
+  variant     ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  quantity    Int            @default(1)
+
+  unitPrice   Decimal        @db.Decimal(10, 2)
+
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([cartId, variantId])
+  @@index([cartId])
+  @@index([variantId])
 }

@@ -11,11 +11,13 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RefreshDto } from './dto/refresh.dto';
-// Import Express Request type to extend it safely
-import { Request as ExpressRequest } from 'express';
+
 import { Roles } from './roles.decorator';
 
 import { RolesGuard } from './guards/roles.guard';
+
+import { CartService } from '../cart/cart.service';
+import type { Request as ExpressRequest } from 'express';
 
 // Define the shape of your request containing the authenticated user data
 interface AuthenticatedRequest extends ExpressRequest {
@@ -28,7 +30,10 @@ interface AuthenticatedRequest extends ExpressRequest {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private cartService: CartService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Get('profile')
@@ -60,10 +65,25 @@ export class AuthController {
   }
 
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
-  }
+  async login(@Body() dto: LoginDto, @Request() req: ExpressRequest) {
+    const result = await this.authService.login(dto);
 
+    const guestToken = req.cookies?.guest_token as string | undefined;
+
+    console.log('LOGIN GUEST TOKEN:', guestToken);
+
+    const mergeResult = await this.cartService.mergeGuestCart(
+      result.user.id,
+      guestToken,
+    );
+
+    console.log('CART MERGE RESULT:', mergeResult);
+
+    return {
+      ...result,
+      cartMerge: mergeResult,
+    };
+  }
   @Post('refresh')
   refresh(
     @Body()
