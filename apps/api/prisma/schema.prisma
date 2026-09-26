@@ -17,20 +17,31 @@ enum Role {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  firstName     String
-  lastName      String
-  email         String    @unique
-  password      String
-  role          Role      @default(CUSTOMER)
-  isActive      Boolean   @default(true)
-  emailVerified Boolean   @default(false)
-  refreshToken  String?
-  lastLogin     DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id               String    @id @default(uuid())
+  firstName        String
+  lastName         String
+  email            String    @unique
+  password         String?
+  googleId         String?   @unique
+  role             Role      @default(CUSTOMER)
+  isActive         Boolean   @default(true)
+  emailVerified    Boolean   @default(false)
+  refreshToken     String?
+  lastLogin        DateTime?
+  avatarUrl        String?
+  avatarPublicId   String?
+  resetToken       String?
+  resetTokenExpiry DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  carts Cart[]
+  carts                        Cart[]
+  orders                       Order[]
+  wishlists                    Wishlist[]
+  giftReservations             GiftReservation[]
+  reviews Review[]
+  financialTransactionsCreated FinancialTransaction[] @relation("FinancialTransactionCreatedBy")
+  
 }
 
 model Category {
@@ -64,69 +75,73 @@ model Product {
   comparePrice     Decimal? @db.Decimal(10, 2)
   stock            Int      @default(0)
 
-  image            String?      // Temporary (legacy)
-  images           ProductImage[]
+  image    String? // Temporary (legacy)
+  images   ProductImage[]
   variants ProductVariant[]
 
-  brand            String?
-  isFeatured       Boolean  @default(false)
-  isPublished      Boolean  @default(false)
+  brand       String?
+  isFeatured  Boolean @default(false)
+  isPublished Boolean @default(false)
 
-  categoryId       String
-  category         Category @relation(fields: [categoryId], references: [id])
+  categoryId    String
+  category      Category       @relation(fields: [categoryId], references: [id])
+  wishlistItems WishlistItem[]
+  reviews Review[]
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ProductVariant {
-  id           String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  productId    String
-  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  name         String
+  name String
 
-  sku          String   @unique
+  sku String @unique
 
-  price        Decimal  @db.Decimal(10, 2)
+  price Decimal @db.Decimal(10, 2)
 
   comparePrice Decimal? @db.Decimal(10, 2)
 
-  stock        Int      @default(0)
+  stock Int @default(0)
 
-  isDefault    Boolean  @default(false)
+  isDefault Boolean @default(false)
 
-  isActive     Boolean  @default(true)
+  isActive Boolean @default(true)
 
-  cartItems CartItem[]
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+  wishlistItems WishlistItem[]
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([productId])
 }
 
 model ProductImage {
-  id         String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  url        String
+  url String
 
-  publicId   String
+  publicId String
 
-  altText    String?
+  altText String?
 
-  isPrimary  Boolean  @default(false)
+  isPrimary Boolean @default(false)
 
-  position   Int      @default(0)
+  position Int @default(0)
 
-  productId  String
+  productId String
 
-  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  updatedAt  DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 }
 
 enum CartStatus {
@@ -136,41 +151,331 @@ enum CartStatus {
 }
 
 model Cart {
-  id         String     @id @default(uuid())
+  id String @id @default(uuid())
 
-  userId     String?
-  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  guestToken String?    @unique
+  guestToken String? @unique
 
-  status     CartStatus @default(ACTIVE)
+  status CartStatus @default(ACTIVE)
 
-  items      CartItem[]
+  items CartItem[]
 
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
   @@index([userId, status])
 }
+
 model CartItem {
-  id          String         @id @default(uuid())
+  id String @id @default(uuid())
 
-  cartId      String
-  cart        Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  cartId String
+  cart   Cart   @relation(fields: [cartId], references: [id], onDelete: Cascade)
 
-  variantId   String
-  variant     ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
 
-  quantity    Int            @default(1)
+  quantity Int @default(1)
 
-  unitPrice   Decimal        @db.Decimal(10, 2)
+  unitPrice Decimal @db.Decimal(10, 2)
 
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  giftReservationId String?
+  giftReservation   GiftReservation? @relation(fields: [giftReservationId], references: [id])
 
-  @@unique([cartId, variantId])
+  @@unique([cartId, variantId, giftReservationId])
   @@index([cartId])
   @@index([variantId])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  FAILED
+}
+
+model Order {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  status OrderStatus @default(PENDING)
+
+  subtotal    Decimal @db.Decimal(10, 2)
+  shippingFee Decimal @db.Decimal(10, 2)
+  total       Decimal @db.Decimal(10, 2)
+
+  // Shipping address, captured at time of order (not linked to a
+  // separate reusable Address model yet — keep it simple for v1)
+  fullName     String
+  phone        String
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String
+  postalCode   String?
+
+  paystackRef String?   @unique
+  paidAt      DateTime?
+
+  items                 OrderItem[]
+  giftReservations      GiftReservation[]
+  financialTransactions FinancialTransaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([paystackRef])
+}
+
+model OrderItem {
+  id String @id @default(uuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+
+  productName       String
+  variantName       String
+  quantity          Int
+  unitPrice         Decimal          @db.Decimal(10, 2)
+  giftReservationId String?
+  giftReservation   GiftReservation? @relation(fields: [giftReservationId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
+
+enum WishlistType {
+  PRIVATE
+  SHARED
+}
+
+enum WishlistVisibility {
+  PRIVATE
+  LINK_ONLY
+}
+
+enum WishlistOccasion {
+  GENERAL
+  BIRTHDAY
+  WEDDING
+  ANNIVERSARY
+  OTHER
+}
+
+enum WishlistItemStatus {
+  AVAILABLE
+  RESERVED
+  GIFTED
+}
+
+enum GiftReservationStatus {
+  RESERVED
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+model Wishlist {
+  id          String             @id @default(uuid())
+  customerId  String
+  customer    User               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String             @unique
+  description String?
+  type        WishlistType       @default(PRIVATE)
+  visibility  WishlistVisibility @default(PRIVATE)
+  occasion    WishlistOccasion   @default(GENERAL)
+  shareToken  String?            @unique
+  expiresAt   DateTime?
+  items       WishlistItem[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([customerId])
+}
+
+model WishlistItem {
+  id         String             @id @default(uuid())
+  wishlistId String
+  wishlist   Wishlist           @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId  String?
+  variant    ProductVariant?    @relation(fields: [variantId], references: [id])
+  quantity   Int                @default(1)
+  priority   Int                @default(0)
+  notes      String?
+  status     WishlistItemStatus @default(AVAILABLE)
+  addedAt    DateTime           @default(now())
+
+  reservations GiftReservation[]
+
+  @@unique([wishlistId, productId, variantId])
+  @@index([wishlistId])
+}
+
+model GiftReservation {
+  id             String                @id @default(uuid())
+  wishlistItemId String
+  wishlistItem   WishlistItem          @relation(fields: [wishlistItemId], references: [id], onDelete: Cascade)
+  buyerId        String?
+  buyer          User?                 @relation(fields: [buyerId], references: [id])
+  orderId        String?
+  order          Order?                @relation(fields: [orderId], references: [id])
+  status         GiftReservationStatus @default(RESERVED)
+  reservedAt     DateTime              @default(now())
+  expiresAt      DateTime
+  completedAt    DateTime?
+  cartItems      CartItem[]
+  orderItems     OrderItem[]
+
+  @@index([wishlistItemId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Finance foundation (Phase 1)
+// Ledger is the source of financial truth. Orders are not the accounting ledger.
+// Double-entry balance (sum debits === sum credits) is enforced in application
+// services within a database transaction — not by mutating historical rows.
+// ---------------------------------------------------------------------------
+
+enum FinancialAccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+/// Polymorphic owner. CUSTOMER ownerId references User.id.
+/// SELLER / RIDER reserved for future domain models — do not invent duplicates here.
+enum FinancialAccountOwnerType {
+  PLATFORM
+  SYSTEM
+  CUSTOMER
+  SELLER
+  RIDER
+}
+
+enum FinancialTransactionType {
+  PAYMENT_CAPTURE
+  TRANSFER
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum FinancialTransactionStatus {
+  PENDING
+  POSTED
+  CANCELLED
+}
+
+model FinancialAccount {
+  id        String                    @id @default(uuid())
+  code      String                    @unique
+  name      String
+  type      FinancialAccountType
+  ownerType FinancialAccountOwnerType @default(PLATFORM)
+  /// Polymorphic owner id (e.g. User.id when ownerType = CUSTOMER). No FK: Seller/Rider models do not exist yet.
+  ownerId   String?
+  currency  String                    @default("NGN")
+  isActive  Boolean                   @default(true)
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([ownerType, ownerId])
+  @@index([type])
+  @@index([isActive])
+}
+
+model FinancialTransaction {
+  id                    String                     @id @default(uuid())
+  /// Unique immutable financial reference (never reuse for corrections — create a REVERSAL).
+  reference             String                     @unique
+  type                  FinancialTransactionType
+  status                FinancialTransactionStatus @default(PENDING)
+  description           String?
+  /// Optional link to existing Order (payment capture). Paystack state remains on Order until a Payment model exists.
+  orderId               String?
+  order                 Order?                     @relation(fields: [orderId], references: [id])
+  /// Idempotency for webhooks / retries — never create duplicate money movements.
+  idempotencyKey        String?                    @unique
+  createdByUserId       String?
+  createdByUser         User?                      @relation("FinancialTransactionCreatedBy", fields: [createdByUserId], references: [id])
+  /// When this transaction reverses another posted transaction (corrections — do not mutate history).
+  reversesTransactionId String?
+  reversesTransaction   FinancialTransaction?      @relation("FinancialTransactionReversal", fields: [reversesTransactionId], references: [id])
+  reversedBy            FinancialTransaction[]     @relation("FinancialTransactionReversal")
+  postedAt              DateTime?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([status])
+  @@index([type])
+  @@index([orderId])
+  @@index([createdByUserId])
+  @@index([reversesTransactionId])
+  @@index([postedAt])
+  @@index([createdAt])
+}
+
+/// One debit or credit line. A FinancialTransaction has many LedgerEntry rows.
+/// Exactly one of debit/credit must be positive (enforced in migration CHECK + services).
+/// No updatedAt — ledger lines are immutable after insert.
+model LedgerEntry {
+  id                     String               @id @default(uuid())
+  financialTransactionId String
+  financialTransaction   FinancialTransaction @relation(fields: [financialTransactionId], references: [id], onDelete: Restrict)
+  financialAccountId     String
+  financialAccount       FinancialAccount     @relation(fields: [financialAccountId], references: [id], onDelete: Restrict)
+  debit                  Decimal              @default(0) @db.Decimal(18, 2)
+  credit                 Decimal              @default(0) @db.Decimal(18, 2)
+  memo                   String?
+  /// Stable ordering of lines within a transaction (for display and deterministic posting).
+  lineNumber             Int                  @default(1)
+  createdAt              DateTime             @default(now())
+
+  @@unique([financialTransactionId, lineNumber])
+  @@index([financialTransactionId])
+  @@index([financialAccountId])
+  @@index([createdAt])
+}
+
+model Review {
+  id                 String   @id @default(uuid())
+  productId          String
+  product            Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating             Int
+  title              String?
+  comment            String
+  isVerifiedPurchase Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([productId, userId])
+  @@index([productId])
 }

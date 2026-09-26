@@ -80,12 +80,17 @@ export class CartService {
           include: {
             variant: {
               include: {
-                product: true,
+                product: {
+                  include: {
+                    images: {
+                      orderBy: {
+                        position: 'asc',
+                      },
+                    },
+                  },
+                },
               },
             },
-          },
-          orderBy: {
-            createdAt: 'asc',
           },
         },
       },
@@ -162,14 +167,30 @@ export class CartService {
       );
     }
 
+    if (dto.giftReservationId) {
+      const reservation = await this.prisma.giftReservation.findFirst({
+        where: {
+          id: dto.giftReservationId,
+          buyerId: userId,
+          status: 'RESERVED',
+        },
+      });
+      if (!reservation) {
+        throw new BadRequestException(
+          'This gift reservation is invalid or no longer active',
+        );
+      }
+    }
+
     const cart = await this.getOrCreateActiveCart(userId, guestToken);
 
-    const existingItem = await this.prisma.cartItem.findUnique({
+    // CHANGED: Use findFirst instead of findUnique so we can narrow the check down
+    // to match the exact giftReservationId (or null if it's a regular purchase)
+    const existingItem = await this.prisma.cartItem.findFirst({
       where: {
-        cartId_variantId: {
-          cartId: cart.id,
-          variantId: dto.variantId,
-        },
+        cartId: cart.id,
+        variantId: dto.variantId,
+        giftReservationId: dto.giftReservationId ?? null,
       },
     });
 
@@ -188,9 +209,7 @@ export class CartService {
         },
         data: {
           quantity: newQuantity,
-
-          // We deliberately refresh the current
-          // price for now.
+          // We deliberately refresh the current price for now.
           unitPrice: variant.price,
         },
         include: {
@@ -203,19 +222,17 @@ export class CartService {
       });
     }
 
+    // CHANGED: Added giftReservationId to persist it upon creation
     return this.prisma.cartItem.create({
       data: {
         cartId: cart.id,
         variantId: dto.variantId,
         quantity: dto.quantity,
         unitPrice: variant.price,
+        giftReservationId: dto.giftReservationId ?? null,
       },
       include: {
-        variant: {
-          include: {
-            product: true,
-          },
-        },
+        variant: { include: { product: true } },
       },
     });
   }
@@ -441,12 +458,10 @@ export class CartService {
       for (const guestItem of guestCart.items) {
         const variant = guestItem.variant;
 
-        const existingItem = await tx.cartItem.findUnique({
+        const existingItem = await tx.cartItem.findFirst({
           where: {
-            cartId_variantId: {
-              cartId: customerCart.id,
-              variantId: guestItem.variantId,
-            },
+            cartId: customerCart.id,
+            variantId: guestItem.variantId,
           },
         });
 
@@ -539,6 +554,7 @@ export class CartService {
       },
       data: {
         status: 'ABANDONED',
+        guestToken: null,
       },
     });
 
@@ -546,6 +562,96 @@ export class CartService {
       success: true,
       message: `${result.count} inactive cart(s) expired successfully`,
       expiredCount: result.count,
+    };
+  }
+
+  /**
+   * Paginated list of abandoned carts for admin review.
+   */
+  async getAbandonedCarts(page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+
+    const [carts, total] = await this.prisma.$transaction([
+      this.prisma.cart.findMany({
+        where: { status: 'ABANDONED' },
+        include: {
+          items: {
+            include: {
+              variant: {
+                include: { product: true },
+              },
+            },
+          },
+          user: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.cart.count({ where: { status: 'ABANDONED' } }),
+    ]);
+
+    const data = carts.map((cart) => {
+      const value = cart.items.reduce(
+        (sum, item) => sum + Number(item.unitPrice) * item.quantity,
+        0,
+      );
+      const itemCount = cart.items.reduce(
+        (sum, item) => sum + item.quantity,
+        0,
+      );
+
+      return {
+        id: cart.id,
+        userId: cart.userId,
+        guestToken: cart.guestToken,
+        user: cart.user,
+        itemCount,
+        value,
+        items: cart.items,
+        abandonedAt: cart.updatedAt,
+        createdAt: cart.createdAt,
+      };
+    });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Aggregate stats for abandoned carts.
+   */
+  async getAbandonedCartStats() {
+    const carts = await this.prisma.cart.findMany({
+      where: { status: 'ABANDONED' },
+      include: { items: true },
+    });
+
+    const count = carts.length;
+
+    const totalValue = carts.reduce((sum, cart) => {
+      const cartValue = cart.items.reduce(
+        (s, item) => s + Number(item.unitPrice) * item.quantity,
+        0,
+      );
+      return sum + cartValue;
+    }, 0);
+
+    const averageValue = count > 0 ? totalValue / count : 0;
+
+    return {
+      count,
+      totalValue,
+      averageValue,
     };
   }
 }

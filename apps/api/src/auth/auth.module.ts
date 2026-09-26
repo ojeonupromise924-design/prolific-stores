@@ -8,6 +8,9 @@ import { AuthService } from './auth.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { RolesGuard } from './guards/roles.guard';
 import { CartModule } from '../cart/cart.module';
+import { CloudinaryModule } from '../cloudinary/cloudinary.module';
+import { GoogleStrategy } from './google.strategy';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
@@ -20,8 +23,10 @@ import { CartModule } from '../cart/cart.module';
       },
     }),
     CartModule,
+    CloudinaryModule,
+    MailModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, RolesGuard],
+  providers: [AuthService, JwtStrategy, RolesGuard, GoogleStrategy],
 })
 export class AuthModule {}

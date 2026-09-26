@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #fbfbfa;
+  --color-ink: #1d1d1f;
+  --color-forest: #0f6a5b;
+  --color-forest-dark: #0b4f45;
+  --color-mint: #2bb894;
+  --color-clay: #c97d60;
+  --color-line: #e8e8e6;
+
+  --font-sans: var(--font-inter);
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+}
+
+button, a, input { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-check {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.animate-toast-in { animation: toast-in 0.25s ease-out; }
+.animate-toast-check { animation: toast-check 0.4s ease-out; }

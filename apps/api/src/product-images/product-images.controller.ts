@@ -110,4 +110,11 @@ export class ProductImagesController {
   ) {
     return this.productImagesService.updatePosition(id, dto);
   }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @Post('product/:productId/normalize')
+  normalizePositions(@Param('productId') productId: string) {
+    return this.productImagesService.normalizeExisting(productId);
+  }
 }

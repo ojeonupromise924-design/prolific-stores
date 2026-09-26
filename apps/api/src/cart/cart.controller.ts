@@ -63,9 +63,4 @@ export class CartController {
   clearCart(@Req() req: CartRequest) {
     return this.cartService.clearCart(req.user?.id, req.guestToken);
   }
-
-  @Post('expire')
-  expireInactiveCarts() {
-    return this.cartService.expireInactiveCarts();
-  }
 }

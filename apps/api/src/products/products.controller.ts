@@ -41,6 +41,44 @@ export class ProductsController {
     return this.productsService.create(dto);
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @Get('admin/all')
+  adminFindAll(@Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.productsService.adminFindAll(
+      page ? Number(page) : 1,
+      limit ? Number(limit) : 20,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @Patch(':id/publish')
+  publish(@Param('id') id: string) {
+    return this.productsService.publish(id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @Patch(':id/unpublish')
+  unpublish(@Param('id') id: string) {
+    return this.productsService.unpublish(id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @Patch(':id/feature')
+  feature(@Param('id') id: string) {
+    return this.productsService.feature(id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @Patch(':id/unfeature')
+  unfeature(@Param('id') id: string) {
+    return this.productsService.unfeature(id);
+  }
+
   @Get()
   findAll(@Query() query: ProductQueryDto) {
     return this.productsService.findAll(query);

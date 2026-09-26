@@ -5,9 +5,11 @@ import { PrismaModule } from '../prisma/prisma.module';
 
 import { CartExpirationService } from './cart-expiration.service';
 
+import { AdminCartController } from './admin-cart.controller';
+
 @Module({
   imports: [PrismaModule],
-  controllers: [CartController],
+  controllers: [CartController, AdminCartController],
   providers: [CartService, CartExpirationService],
   exports: [CartService],
 })

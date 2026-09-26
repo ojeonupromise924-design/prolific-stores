@@ -14,9 +14,20 @@ import { ProductVariantsModule } from './product-variants/product-variants.modul
 import { CartModule } from './cart/cart.module';
 
 import { ScheduleModule } from '@nestjs/schedule';
+import { OrdersModule } from './orders/orders.module';
+import { WishlistModule } from './wishlist/wishlist.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { ReviewsModule } from './reviews/reviews.module';
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // 1 minute
+        limit: 100, // 100 requests per minute per IP, globally
+      },
+    ]),
     ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
@@ -30,10 +41,19 @@ import { ScheduleModule } from '@nestjs/schedule';
     CloudinaryModule,
     ProductVariantsModule,
     CartModule,
+    OrdersModule,
+    WishlistModule,
+    ReviewsModule,
   ],
 
   controllers: [AppController],
 
-  providers: [AppService],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+    AppService,
+  ],
 })
 export class AppModule {}

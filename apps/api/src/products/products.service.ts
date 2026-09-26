@@ -145,6 +145,11 @@ export class ProductsService {
 
     if (published !== undefined) {
       where.isPublished = published;
+    } else {
+      // Default to published-only when the caller doesn't specify —
+      // this is the public storefront endpoint, so unpublished
+      // drafts should never leak out unless explicitly requested.
+      where.isPublished = true;
     }
 
     if (category) {
@@ -188,10 +193,10 @@ export class ProductsService {
     };
   }
 
-  async findOne(id: string) {
-    const product = await this.prisma.product.findUnique({
+  async findOne(idOrSlug: string) {
+    const product = await this.prisma.product.findFirst({
       where: {
-        id,
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
       },
       include: {
         category: true,
@@ -275,24 +280,27 @@ export class ProductsService {
 
   async remove(id: string) {
     const product = await this.prisma.product.findUnique({
-      where: {
-        id,
-      },
+      where: { id },
+      include: { variants: { include: { orderItems: true } } },
     });
 
     if (!product) {
       throw new NotFoundException('Product not found');
     }
 
-    await this.prisma.product.delete({
-      where: {
-        id,
-      },
-    });
+    const hasOrderHistory = product.variants.some(
+      (v) => v.orderItems.length > 0,
+    );
 
-    return {
-      message: 'Product deleted successfully',
-    };
+    if (hasOrderHistory) {
+      throw new BadRequestException(
+        'This product has order history and cannot be deleted. Unpublish it instead to hide it from customers while preserving past orders.',
+      );
+    }
+
+    await this.prisma.product.delete({ where: { id } });
+
+    return { message: 'Product deleted successfully' };
   }
 
   async publish(id: string) {
@@ -361,5 +369,28 @@ export class ProductsService {
         isFeatured: false,
       },
     });
+  }
+
+  async adminFindAll(page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const [products, total] = await this.prisma.$transaction([
+      this.prisma.product.findMany({
+        include: {
+          category: true,
+          images: { where: { isPrimary: true }, take: 1 },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.product.count(),
+    ]);
+
+    return {
+      data: products.map((p) =>
+        ProductMapper.toResponse(p, this.cloudinaryService),
+      ),
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
   }
 }

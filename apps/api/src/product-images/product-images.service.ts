@@ -88,34 +88,29 @@ export class ProductImagesService {
   }
 
   async remove(id: string) {
-    const image = await this.prisma.productImage.findUnique({
-      where: { id },
-    });
+    const image = await this.prisma.productImage.findUnique({ where: { id } });
 
     if (!image) {
       throw new NotFoundException('Image not found');
     }
 
-    const { productId } = image;
+    const { productId, isPrimary } = image;
 
     await this.cloudinaryService.deleteImage(image.publicId);
-    await this.prisma.productImage.delete({
-      where: { id },
-    });
+    await this.prisma.productImage.delete({ where: { id } });
+    await this.normalizePositions(productId);
 
-    const existingImages = await this.prisma.productImage.count({
-      where: { productId },
-    });
-
-    if (existingImages > 0) {
-      const primaryImage = await this.prisma.productImage.findFirst({
+    // Only assign a new primary if the deleted image WAS the primary —
+    // otherwise leave the existing primary untouched.
+    if (isPrimary) {
+      const newPrimary = await this.prisma.productImage.findFirst({
         where: { productId },
         orderBy: { position: 'asc' },
       });
 
-      if (primaryImage) {
+      if (newPrimary) {
         await this.prisma.productImage.update({
-          where: { id: primaryImage.id },
+          where: { id: newPrimary.id },
           data: { isPrimary: true },
         });
       }
@@ -215,5 +210,28 @@ export class ProductImagesService {
     });
 
     return ProductImageMapper.toResponse(updatedImage, this.cloudinaryService);
+  }
+
+  private async normalizePositions(productId: string) {
+    const images = await this.prisma.productImage.findMany({
+      where: { productId },
+      orderBy: { position: 'asc' },
+    });
+
+    await Promise.all(
+      images.map((img, index) =>
+        img.position === index
+          ? Promise.resolve()
+          : this.prisma.productImage.update({
+              where: { id: img.id },
+              data: { position: index },
+            }),
+      ),
+    );
+  }
+
+  async normalizeExisting(productId: string) {
+    await this.normalizePositions(productId);
+    return { message: 'Positions normalized' };
   }
 }
