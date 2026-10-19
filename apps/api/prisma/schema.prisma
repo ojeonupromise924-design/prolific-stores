@@ -164,6 +164,9 @@ model Order {
   items                 OrderItem[]
   payment               Payment?
   sellerSettlements     SellerSettlement[]
+  refunds                Refund[]
+  commissions            Commission[]
+  fees                   Fee[]
 
   @@index([userId])
   @@index([status])
@@ -246,6 +249,199 @@ model GiftReservation {
   @@index([status])
 }
 
+
+/// Business classification of a money movement — used for reporting,
+/// complementary to FinancialTransactionType (how it moved through the ledger).
+enum TransactionType {
+  CUSTOMER_PAYMENT
+  COMMISSION
+  SERVICE_FEE
+  DELIVERY_FEE
+  PROCESSING_FEE
+  REFUND
+  SELLER_SETTLEMENT
+  RIDER_EARNING
+  ADJUSTMENT
+  WALLET_CREDIT
+  WALLET_DEBIT
+}
+
+/// Lifecycle of a business-level financial record (commission, fee, adjustment).
+/// COMPLETED means it has been posted to the ledger.
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+  CANCELLED
+}
+
+enum RefundStatus {
+  REQUESTED
+  REVIEWING
+  APPROVED
+  PROCESSING
+  COMPLETED
+  FAILED
+  REJECTED
+}
+
+enum ReconciliationStatus {
+  UNMATCHED
+  MATCHED
+  PARTIAL
+  EXCEPTION
+  RESOLVED
+}
+
+/// A recorded commission charge. The ledger remains the source of truth for
+/// money; this is the business-level record of why the charge happened.
+model Commission {
+  id          String            @id @default(uuid())
+  reference   String            @unique
+  orderId     String?
+  sellerId    String?
+  grossAmount Decimal           @db.Decimal(18, 2)
+  rate        Decimal           @db.Decimal(5, 4)
+  amount      Decimal           @db.Decimal(18, 2)
+  status      TransactionStatus @default(COMPLETED)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  seller Seller? @relation(fields: [sellerId], references: [id])
+  order  Order?  @relation(fields: [orderId], references: [id])
+
+  @@index([sellerId])
+  @@index([orderId])
+  @@index([status])
+}
+
+/// A platform fee other than seller commission (service, delivery, processing).
+model Fee {
+  id          String            @id @default(uuid())
+  reference   String            @unique
+  type        TransactionType
+  orderId     String?
+  sellerId    String?
+  amount      Decimal           @db.Decimal(18, 2)
+  currency    String            @default("NGN")
+  status      TransactionStatus @default(COMPLETED)
+  description String?
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  seller Seller? @relation(fields: [sellerId], references: [id])
+  order  Order?  @relation(fields: [orderId], references: [id])
+
+  @@index([sellerId])
+  @@index([orderId])
+  @@index([type])
+  @@index([status])
+}
+
+/// Manual correction posted to a single account. Always paired with a
+/// REVERSAL transaction in the ledger — never a silent edit.
+model Adjustment {
+  id          String            @id @default(uuid())
+  reference   String            @unique
+  accountCode String
+  amount      Decimal           @db.Decimal(18, 2)
+  type        TransactionType   @default(ADJUSTMENT)
+  status      TransactionStatus @default(PENDING)
+  reason      String
+  createdById String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([accountCode])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// A customer refund request. The ledger effect is posted on approval so an
+/// unapproved refund never moves money.
+model Refund {
+  id                String       @id @default(uuid())
+  reference         String       @unique
+  orderId           String
+  paymentId         String?
+  amount            Decimal      @db.Decimal(18, 2)
+  reason            String
+  status            RefundStatus @default(REQUESTED)
+  requestedById     String?
+  approvedById      String?
+  providerReference String?
+  requestedAt       DateTime     @default(now())
+  approvedAt        DateTime?
+  completedAt       DateTime?
+  failureReason     String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  order   Order?   @relation(fields: [orderId], references: [id])
+  payment Payment? @relation(fields: [paymentId], references: [id])
+
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// One reconciliation run against a provider's settlement report.
+model Reconciliation {
+  id                  String               @id @default(uuid())
+  provider            String
+  reconciliationDate  DateTime
+  totalSystemAmount   Decimal              @db.Decimal(18, 2)
+  totalProviderAmount Decimal              @db.Decimal(18, 2)
+  matchedCount        Int                  @default(0)
+  unmatchedCount      Int                  @default(0)
+  status              ReconciliationStatus @default(UNMATCHED)
+  createdAt           DateTime             @default(now())
+
+  items ReconciliationItem[]
+
+  @@index([provider, reconciliationDate])
+  @@index([status])
+}
+
+/// A single provider transaction matched against an internal reference.
+model ReconciliationItem {
+  id                String               @id @default(uuid())
+  reconciliationId  String
+  internalReference String?
+  providerReference String?
+  systemAmount      Decimal              @db.Decimal(18, 2)
+  providerAmount    Decimal              @db.Decimal(18, 2)
+  difference        Decimal              @db.Decimal(18, 2)
+  status            ReconciliationStatus
+  notes             String?
+  createdAt         DateTime             @default(now())
+
+  reconciliation Reconciliation @relation(fields: [reconciliationId], references: [id])
+
+  @@index([reconciliationId])
+  @@index([status])
+}
+
+/// Immutable trail of financial actions. No updatedAt — entries are never edited.
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
 model FinancialAccount {
   id            String                    @id @default(uuid())
   code          String                    @unique
@@ -323,16 +519,20 @@ model LedgerEntry {
 model Payment {
   id              String           @id @default(uuid())
   orderId         String           @unique
+  customerId      String?
   paystackRef     String           @unique
+  provider        String           @default("paystack")
   amount          Decimal          @db.Decimal(18, 2)
   currency        String           @default("NGN")
   status          PaymentStatus    @default(PENDING)
   gatewayResponse Json?
   paidAt          DateTime?
+  failedAt        DateTime?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
   paymentAttempts PaymentAttempt[]
+  refunds          Refund[]
 
   @@index([status])
   @@index([paidAt])
@@ -341,6 +541,7 @@ model Payment {
 model PaymentAttempt {
   id             String        @id @default(uuid())
   paymentId      String
+  provider       String        @default("paystack")
   paystackRef    String?       @unique
   amount         Decimal       @db.Decimal(18, 2)
   status         PaymentStatus
@@ -406,6 +607,8 @@ model Seller {
   balances        SellerBalance?
   payouts         SellerPayout[]
   settlements     SellerSettlement[]
+  commissions     Commission[]
+  fees            Fee[]
 
   @@index([isActive])
   @@index([isVerified])
@@ -570,6 +773,8 @@ enum FinancialAccountOwnerType {
   PLATFORM
   SYSTEM
   CUSTOMER
+  SELLER
+  RIDER
 }
 
 enum FinancialTransactionType {
