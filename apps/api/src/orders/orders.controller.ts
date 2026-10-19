@@ -7,20 +7,21 @@ import {
   Param,
   Post,
   Req,
+  Request,
   UnauthorizedException,
   UseGuards,
   Patch,
 } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import { createHmac } from 'crypto';
-import type { Request } from 'express';
+import type { Request as ExpressRequest } from 'express';
 
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateOrderAddressDto } from './dto/update-order-address.dto';
 
-interface AuthenticatedRequest extends Request {
+interface AuthenticatedRequest extends ExpressRequest {
   user: { id: string; email: string; role: string };
 }
 
@@ -44,7 +45,11 @@ export class OrdersController {
 
   @UseGuards(JwtAuthGuard)
   @Get('verify/:reference')
-  verifyPayment(@Param('reference') reference: string) {
+  async verifyPayment(
+    @Param('reference') reference: string,
+    //@Request() req: AuthenticatedRequest,
+  ) {
+    // Both webhook and checkout callback now use the SAME complete method
     return this.ordersService.confirmPayment(reference);
   }
 
@@ -63,7 +68,7 @@ export class OrdersController {
   @Post('webhook/paystack')
   @HttpCode(200)
   async handleWebhook(
-    @Req() req: RawBodyRequest<Request>,
+    @Req() req: RawBodyRequest<AuthenticatedRequest>,
     @Headers('x-paystack-signature') signature: string,
   ) {
     const secret = process.env.PAYSTACK_SECRET_KEY!;

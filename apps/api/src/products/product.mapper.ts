@@ -8,6 +8,7 @@ type ProductWithRelations = Prisma.ProductGetPayload<{
   include: {
     category: true;
     images: true;
+    variants: true;
   };
 }>;
 
@@ -41,7 +42,7 @@ export class ProductMapper {
       comparePrice:
         product.comparePrice !== null ? Number(product.comparePrice) : null,
 
-      stock: product.stock,
+      stock: product.variants?.reduce((sum, v) => sum + v.stock, 0) ?? 0,
 
       isPublished: product.isPublished,
 

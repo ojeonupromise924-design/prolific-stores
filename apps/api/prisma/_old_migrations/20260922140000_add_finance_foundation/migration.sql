@@ -132,3 +132,8 @@ ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_financialTransactionId_fke
 
 -- AddForeignKey
 ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_financialAccountId_fkey" FOREIGN KEY ("financialAccountId") REFERENCES "FinancialAccount"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- Custom Rule: Enforce exactly one positive value for debit or credit per row
+ALTER TABLE "LedgerEntry" ADD CONSTRAINT "ledger_entry_dc_xor" CHECK (
+  ("debit" > 0 AND "credit" = 0) OR ("credit" > 0 AND "debit" = 0)
+);

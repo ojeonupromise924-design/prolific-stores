@@ -170,6 +170,7 @@ export class ProductsService {
               position: 'asc',
             },
           },
+          variants: true,
         },
         orderBy,
       }),
@@ -205,6 +206,7 @@ export class ProductsService {
             position: 'asc',
           },
         },
+        variants: true,
       },
     });
 
@@ -378,6 +380,7 @@ export class ProductsService {
         include: {
           category: true,
           images: { where: { isPrimary: true }, take: 1 },
+          variants: true,
         },
         orderBy: { createdAt: 'desc' },
         skip,

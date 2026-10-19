@@ -12,6 +12,9 @@ import { UpdateOrderAddressDto } from './dto/update-order-address.dto';
 import { MailService } from '../mail/mail.service';
 import { orderConfirmationTemplate } from '../mail/templates/order-confirmation.template';
 import { WishlistService } from '../wishlist/wishlist.service';
+import { FinanceService } from '../finance/finance.service';
+import { Decimal } from '@prisma/client/runtime/library';
+import { SettlementService } from '../finance/settlements/settlement.service';
 
 const FREE_SHIPPING_THRESHOLD = 25000;
 const FLAT_SHIPPING_FEE = 3000;
@@ -25,6 +28,8 @@ export class OrdersService {
     private readonly paystackService: PaystackService,
     private readonly mailService: MailService,
     private readonly wishlistService: WishlistService,
+    private readonly financeService: FinanceService, // <-- CORRECT NAME
+    private readonly settlementService: SettlementService,
   ) {}
 
   private readonly orderWithItemsInclude = {
@@ -68,8 +73,6 @@ export class OrdersService {
       throw new BadRequestException('Your cart is empty');
     }
 
-    // Re-validate every item against live stock/availability —
-    // never trust the cart snapshot blindly at checkout time.
     for (const item of cart.items) {
       const variant = await this.prisma.productVariant.findUnique({
         where: { id: item.variantId },
@@ -124,6 +127,7 @@ export class OrdersService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           giftReservationId: item.giftReservationId,
+          sellerId: item.variant.product.sellerId ?? null,
         })),
       });
 
@@ -144,11 +148,6 @@ export class OrdersService {
     };
   }
 
-  /**
-   * Confirms payment with Paystack and finalizes the order.
-   * Safe to call multiple times (from both the frontend redirect
-   * AND the webhook) — already-paid orders are skipped.
-   */
   async confirmPayment(reference: string) {
     const order = await this.prisma.order.findUnique({
       where: { paystackRef: reference },
@@ -159,7 +158,6 @@ export class OrdersService {
       throw new NotFoundException('Order not found for this reference');
     }
 
-    // Idempotency: already processed, nothing to do.
     if (order.status === 'PAID') {
       return order;
     }
@@ -177,37 +175,86 @@ export class OrdersService {
       );
     }
 
-    // Sanity check: paid amount must match what we expect.
     const expectedKobo = Math.round(Number(order.total) * 100);
     if (verification.amount !== expectedKobo) {
       throw new BadRequestException('Payment amount mismatch');
     }
 
-    const updatedOrder = await this.prisma.$transaction(async (tx) => {
-      for (const item of order.items) {
-        await tx.productVariant.update({
-          where: { id: item.variantId },
-          data: { stock: { decrement: item.quantity } },
+    const amount = new Decimal(verification.amount).div(100);
+
+    const updatedOrder = await this.prisma.$transaction(
+      async (tx) => {
+        // 1. Claim the order. If the webhook and the checkout callback
+        //    arrive together, only one of them gets past this line.
+        const claimed = await tx.order.updateMany({
+          where: { id: order.id, status: { not: 'PAID' } },
+          data: { status: 'PAID', paidAt: new Date() },
         });
-      }
+        if (claimed.count === 0) return null;
 
-      const result = await tx.order.update({
-        where: { id: order.id },
-        data: { status: 'PAID', paidAt: new Date() },
-      });
+        // 2. Decrement stock
+        for (const item of order.items) {
+          await tx.productVariant.update({
+            where: { id: item.variantId },
+            data: { stock: { decrement: item.quantity } },
+          });
+        }
 
-      const activeCart = await tx.cart.findFirst({
-        where: { userId: order.userId, status: 'ACTIVE' },
-      });
+        // 3. Payment record
+        await tx.payment.create({
+          data: {
+            orderId: order.id,
+            paystackRef: reference,
+            amount,
+            currency: 'NGN',
+            status: 'SUCCESS',
+            gatewayResponse: verification,
+            paidAt: new Date(),
+          },
+        });
 
-      if (activeCart) {
-        await tx.cartItem.deleteMany({ where: { cartId: activeCart.id } });
-      }
+        // 4. Per-seller settlements (commission calculated once, here)
+        const split = await this.settlementService.createForOrder(tx, order);
 
-      return result;
-    });
+        // Whatever was paid beyond the items is shipping
+        const shippingTotal = amount.minus(split.itemsTotal);
+        if (shippingTotal.isNegative()) {
+          throw new BadRequestException(
+            'Order items exceed the amount paid — order needs review',
+          );
+        }
 
-    // Complete any gift reservations this order fulfills.
+        // 5. Ledger, built from the same numbers the settlements used
+        await this.financeService.capturePayment(tx, {
+          orderId: order.id,
+          amount,
+          paystackRef: reference,
+          userId: order.userId,
+          sellerNetTotal: split.sellerNetTotal,
+          commissionTotal: split.commissionTotal,
+          platformSalesTotal: split.platformSalesTotal,
+          shippingTotal,
+        });
+
+        // 6. Clear cart
+        const activeCart = await tx.cart.findFirst({
+          where: { userId: order.userId, status: 'ACTIVE' },
+        });
+        if (activeCart) {
+          await tx.cartItem.deleteMany({ where: { cartId: activeCart.id } });
+        }
+
+        return tx.order.findUniqueOrThrow({ where: { id: order.id } });
+      },
+      { maxWait: 5000, timeout: 15000 },
+    );
+
+    // Another request already completed this payment
+    if (!updatedOrder) {
+      return this.prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    }
+
+    // 7. Complete gift reservations (outside the transaction)
     for (const item of order.items) {
       if (item.giftReservationId) {
         await this.wishlistService.completeReservation(
@@ -217,8 +264,7 @@ export class OrdersService {
       }
     }
 
-    // Send confirmation email — outside the transaction, and
-    // deliberately non-blocking (mailService.send never throws).
+    // 8. Confirmation email (non-blocking)
     void this.mailService.send({
       to: order.user.email,
       subject: `Your Prolific Store order is confirmed`,
@@ -329,9 +375,7 @@ export class OrdersService {
       );
     }
 
-    // Paystack requires a unique reference on every initialize call —
-    // generate a fresh one and update the order to track it, since
-    // confirmPayment/webhook lookups key off paystackRef.
+    // Paystack rejects reused references, so every retry needs a fresh one
     const newReference = randomBytes(10).toString('hex');
 
     await this.prisma.order.update({

@@ -7,9 +7,16 @@ import { CartModule } from '../cart/cart.module';
 import { MailModule } from '../mail/mail.module';
 import { AdminOrdersController } from './admin-orders.controller';
 import { WishlistModule } from '../wishlist/wishlist.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
-  imports: [PrismaModule, CartModule, MailModule, WishlistModule],
+  imports: [
+    PrismaModule,
+    CartModule,
+    MailModule,
+    WishlistModule,
+    FinanceModule,
+  ],
   controllers: [OrdersController, AdminOrdersController],
   providers: [OrdersService, PaystackService],
 })

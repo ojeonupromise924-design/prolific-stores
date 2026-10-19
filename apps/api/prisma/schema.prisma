@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,160 +7,115 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  CUSTOMER
-  ADMIN
-  SUPER_ADMIN
-}
-
 model User {
-  id               String    @id @default(uuid())
-  firstName        String
-  lastName         String
-  email            String    @unique
-  password         String?
-  googleId         String?   @unique
-  role             Role      @default(CUSTOMER)
-  isActive         Boolean   @default(true)
-  emailVerified    Boolean   @default(false)
-  refreshToken     String?
-  lastLogin        DateTime?
-  avatarUrl        String?
-  avatarPublicId   String?
-  resetToken       String?
-  resetTokenExpiry DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
+  id                           String                 @id @default(uuid())
+  firstName                    String
+  lastName                     String
+  email                        String                 @unique
+  password                     String?
+  role                         Role                   @default(CUSTOMER)
+  createdAt                    DateTime               @default(now())
+  updatedAt                    DateTime               @updatedAt
+  emailVerified                Boolean                @default(false)
+  isActive                     Boolean                @default(true)
+  lastLogin                    DateTime?
+  refreshToken                 String?
+  avatarPublicId               String?
+  avatarUrl                    String?
+  googleId                     String?                @unique
+  resetToken                   String?
+  resetTokenExpiry             DateTime?
   carts                        Cart[]
-  orders                       Order[]
-  wishlists                    Wishlist[]
-  giftReservations             GiftReservation[]
-  reviews Review[]
   financialTransactionsCreated FinancialTransaction[] @relation("FinancialTransactionCreatedBy")
-  
+  giftReservations             GiftReservation[]
+  orders                       Order[]
+  reviews                      Review[]
+  seller                       Seller?
+  wallet                       Wallet?
+  wishlists                    Wishlist[]
 }
 
 model Category {
-  id String @id @default(uuid())
-
-  name String
-
-  slug String @unique
-
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  image       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   description String?
-
-  image String?
-
-  isActive Boolean @default(true)
-
-  products Product[]
-
-  createdAt DateTime @default(now())
-
-  updatedAt DateTime @updatedAt
+  isActive    Boolean   @default(true)
+  products    Product[]
 }
 
 model Product {
-  id               String   @id @default(uuid())
+  id               String           @id @default(uuid())
   name             String
-  slug             String   @unique
+  slug             String           @unique
   description      String
   shortDescription String?
-  sku              String   @unique
-  price            Decimal  @db.Decimal(10, 2)
-  comparePrice     Decimal? @db.Decimal(10, 2)
-  stock            Int      @default(0)
+  sku              String           @unique
+  price            Decimal          @db.Decimal(10, 2)
+  comparePrice     Decimal?         @db.Decimal(10, 2)
+  image            String?
+  brand            String?
+  isFeatured       Boolean          @default(false)
+  isPublished      Boolean          @default(false)
+  categoryId       String
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  sellerId         String?
+  category         Category         @relation(fields: [categoryId], references: [id])
+  seller           Seller?          @relation(fields: [sellerId], references: [id])
+  images           ProductImage[]
+  variants         ProductVariant[]
+  reviews          Review[]
+  wishlistItems    WishlistItem[]
 
-  image    String? // Temporary (legacy)
-  images   ProductImage[]
-  variants ProductVariant[]
-
-  brand       String?
-  isFeatured  Boolean @default(false)
-  isPublished Boolean @default(false)
-
-  categoryId    String
-  category      Category       @relation(fields: [categoryId], references: [id])
-  wishlistItems WishlistItem[]
-  reviews Review[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  @@index([sellerId])
 }
 
 model ProductVariant {
-  id String @id @default(uuid())
-
-  productId String
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  name String
-
-  sku String @unique
-
-  price Decimal @db.Decimal(10, 2)
-
-  comparePrice Decimal? @db.Decimal(10, 2)
-
-  stock Int @default(0)
-
-  isDefault Boolean @default(false)
-
-  isActive Boolean @default(true)
-
+  id            String         @id @default(uuid())
+  productId     String
+  name          String
+  sku           String         @unique
+  price         Decimal        @db.Decimal(10, 2)
+  comparePrice  Decimal?       @db.Decimal(10, 2)
+  stock         Int            @default(0)
+  isDefault     Boolean        @default(false)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   cartItems     CartItem[]
   orderItems    OrderItem[]
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
   wishlistItems WishlistItem[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 
   @@index([productId])
 }
 
 model ProductImage {
-  id String @id @default(uuid())
-
-  url String
-
-  publicId String
-
-  altText String?
-
-  isPrimary Boolean @default(false)
-
-  position Int @default(0)
-
+  id        String   @id @default(uuid())
+  url       String
+  publicId  String
+  altText   String?
+  isPrimary Boolean  @default(false)
+  position  Int      @default(0)
   productId String
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
   createdAt DateTime @default(now())
-
   updatedAt DateTime @updatedAt
-}
-
-enum CartStatus {
-  ACTIVE
-  CONVERTED
-  ABANDONED
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
 
 model Cart {
-  id String @id @default(uuid())
-
-  userId String?
-  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  guestToken String? @unique
-
-  status CartStatus @default(ACTIVE)
-
-  items CartItem[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String     @id @default(uuid())
+  userId     String?
+  status     CartStatus @default(ACTIVE)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  guestToken String?    @unique
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items      CartItem[]
 
   @@index([userId])
   @@index([status])
@@ -171,26 +123,396 @@ model Cart {
 }
 
 model CartItem {
-  id String @id @default(uuid())
-
-  cartId String
-  cart   Cart   @relation(fields: [cartId], references: [id], onDelete: Cascade)
-
-  variantId String
-  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
-
-  quantity Int @default(1)
-
-  unitPrice Decimal @db.Decimal(10, 2)
-
+  id                String           @id @default(uuid())
+  cartId            String
+  variantId         String
+  quantity          Int              @default(1)
+  unitPrice         Decimal          @db.Decimal(10, 2)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   giftReservationId String?
+  cart              Cart             @relation(fields: [cartId], references: [id], onDelete: Cascade)
   giftReservation   GiftReservation? @relation(fields: [giftReservationId], references: [id])
+  variant           ProductVariant   @relation(fields: [variantId], references: [id], onDelete: Cascade)
 
   @@unique([cartId, variantId, giftReservationId])
   @@index([cartId])
   @@index([variantId])
+}
+
+model Order {
+  id                    String                 @id @default(uuid())
+  userId                String
+  status                OrderStatus            @default(PENDING)
+  subtotal              Decimal                @db.Decimal(10, 2)
+  shippingFee           Decimal                @db.Decimal(10, 2)
+  total                 Decimal                @db.Decimal(10, 2)
+  fullName              String
+  phone                 String
+  addressLine1          String
+  addressLine2          String?
+  city                  String
+  state                 String
+  postalCode            String?
+  paystackRef           String?                @unique
+  paidAt                DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  financialTransactions FinancialTransaction[]
+  giftReservations      GiftReservation[]
+  user                  User                   @relation(fields: [userId], references: [id])
+  items                 OrderItem[]
+  payment               Payment?
+  sellerSettlements     SellerSettlement[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([paystackRef])
+}
+
+model OrderItem {
+  id                String           @id @default(uuid())
+  orderId           String
+  variantId         String
+  productName       String
+  variantName       String
+  quantity          Int
+  unitPrice         Decimal          @db.Decimal(10, 2)
+  createdAt         DateTime         @default(now())
+  giftReservationId String?
+  sellerId          String?
+  giftReservation   GiftReservation? @relation(fields: [giftReservationId], references: [id])
+  order             Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant           ProductVariant   @relation(fields: [variantId], references: [id])
+
+  @@index([sellerId])
+  @@index([orderId])
+}
+
+model Wishlist {
+  id          String             @id @default(uuid())
+  customerId  String
+  name        String
+  slug        String             @unique
+  description String?
+  type        WishlistType       @default(PRIVATE)
+  visibility  WishlistVisibility @default(PRIVATE)
+  occasion    WishlistOccasion   @default(GENERAL)
+  shareToken  String?            @unique
+  expiresAt   DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  customer    User               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items       WishlistItem[]
+
+  @@index([customerId])
+}
+
+model WishlistItem {
+  id           String             @id @default(uuid())
+  productId    String
+  addedAt      DateTime           @default(now())
+  notes        String?
+  priority     Int                @default(0)
+  quantity     Int                @default(1)
+  status       WishlistItemStatus @default(AVAILABLE)
+  variantId    String?
+  wishlistId   String
+  reservations GiftReservation[]
+  product      Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant      ProductVariant?    @relation(fields: [variantId], references: [id])
+  wishlist     Wishlist           @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+
+  @@unique([wishlistId, productId, variantId])
+  @@index([wishlistId])
+}
+
+model GiftReservation {
+  id             String                @id @default(uuid())
+  wishlistItemId String
+  buyerId        String?
+  orderId        String?
+  status         GiftReservationStatus @default(RESERVED)
+  reservedAt     DateTime              @default(now())
+  expiresAt      DateTime
+  completedAt    DateTime?
+  cartItems      CartItem[]
+  buyer          User?                 @relation(fields: [buyerId], references: [id])
+  order          Order?                @relation(fields: [orderId], references: [id])
+  wishlistItem   WishlistItem          @relation(fields: [wishlistItemId], references: [id], onDelete: Cascade)
+  orderItems     OrderItem[]
+
+  @@index([wishlistItemId])
+  @@index([status])
+}
+
+model FinancialAccount {
+  id            String                    @id @default(uuid())
+  code          String                    @unique
+  name          String
+  type          FinancialAccountType
+  ownerType     FinancialAccountOwnerType @default(PLATFORM)
+  /// Polymorphic owner id (e.g. User.id when ownerType = CUSTOMER). No FK: Seller/Rider models do not exist yet.
+  ownerId       String?
+  currency      String                    @default("NGN")
+  isActive      Boolean                   @default(true)
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  description   String?
+  ledgerEntries LedgerEntry[]
+
+  @@index([ownerType, ownerId])
+  @@index([type])
+  @@index([isActive])
+}
+
+model FinancialTransaction {
+  id                    String                     @id @default(uuid())
+  /// Unique immutable financial reference (never reuse for corrections — create a REVERSAL).
+  reference             String                     @unique
+  type                  FinancialTransactionType
+  status                FinancialTransactionStatus @default(PENDING)
+  description           String?
+  /// Optional link to existing Order (payment capture). Paystack state remains on Order until a Payment model exists.
+  orderId               String?
+  /// Idempotency for webhooks / retries — never create duplicate money movements.
+  idempotencyKey        String?                    @unique
+  createdByUserId       String?
+  /// When this transaction reverses another posted transaction (corrections — do not mutate history).
+  reversesTransactionId String?
+  postedAt              DateTime?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  createdByUser         User?                      @relation("FinancialTransactionCreatedBy", fields: [createdByUserId], references: [id])
+  order                 Order?                     @relation(fields: [orderId], references: [id])
+  reversesTransaction   FinancialTransaction?      @relation("FinancialTransactionReversal", fields: [reversesTransactionId], references: [id])
+  reversedBy            FinancialTransaction[]     @relation("FinancialTransactionReversal")
+  ledgerEntries         LedgerEntry[]
+
+  @@index([status])
+  @@index([type])
+  @@index([orderId])
+  @@index([createdByUserId])
+  @@index([reversesTransactionId])
+  @@index([postedAt])
+  @@index([createdAt])
+}
+
+/// One debit or credit line. A FinancialTransaction has many LedgerEntry rows.
+/// Exactly one of debit/credit must be positive (enforced in migration CHECK + services).
+/// No updatedAt — ledger lines are immutable after insert.
+model LedgerEntry {
+  id                     String               @id @default(uuid())
+  financialTransactionId String
+  financialAccountId     String
+  debit                  Decimal              @default(0) @db.Decimal(18, 2)
+  credit                 Decimal              @default(0) @db.Decimal(18, 2)
+  memo                   String?
+  /// Stable ordering of lines within a transaction (for display and deterministic posting).
+  lineNumber             Int                  @default(1)
+  createdAt              DateTime             @default(now())
+  financialAccount       FinancialAccount     @relation(fields: [financialAccountId], references: [id])
+  financialTransaction   FinancialTransaction @relation(fields: [financialTransactionId], references: [id])
+
+  @@unique([financialTransactionId, lineNumber])
+  @@index([financialTransactionId])
+  @@index([financialAccountId])
+  @@index([createdAt])
+}
+
+model Payment {
+  id              String           @id @default(uuid())
+  orderId         String           @unique
+  paystackRef     String           @unique
+  amount          Decimal          @db.Decimal(18, 2)
+  currency        String           @default("NGN")
+  status          PaymentStatus    @default(PENDING)
+  gatewayResponse Json?
+  paidAt          DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentAttempts PaymentAttempt[]
+
+  @@index([status])
+  @@index([paidAt])
+}
+
+model PaymentAttempt {
+  id             String        @id @default(uuid())
+  paymentId      String
+  paystackRef    String?       @unique
+  amount         Decimal       @db.Decimal(18, 2)
+  status         PaymentStatus
+  failureCode    String?
+  failureMessage String?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  payment        Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([paystackRef])
+}
+
+model Wallet {
+  id           String              @id @default(uuid())
+  userId       String              @unique
+  balance      Decimal             @default(0) @db.Decimal(18, 2)
+  currency     String              @default("NGN")
+  isActive     Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+
+  @@index([userId])
+}
+
+model WalletTransaction {
+  id           String                @id @default(uuid())
+  walletId     String
+  type         WalletTransactionType
+  amount       Decimal               @db.Decimal(18, 2)
+  balanceAfter Decimal               @db.Decimal(18, 2)
+  reference    String                @unique
+  description  String?
+  metadata     Json?
+  createdAt    DateTime              @default(now())
+  wallet       Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([type])
+  @@index([reference])
+  @@index([createdAt])
+}
+
+model Seller {
+  id              String             @id @default(uuid())
+  userId          String             @unique
+  businessName    String
+  businessEmail   String
+  businessPhone   String
+  bankName        String
+  accountNumber   String
+  accountName     String
+  commissionRate  Decimal            @default(0.10) @db.Decimal(5, 4)
+  settlementCycle SettlementCycle    @default(WEEKLY)
+  isActive        Boolean            @default(true)
+  isVerified      Boolean            @default(false)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  products        Product[]
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balances        SellerBalance?
+  payouts         SellerPayout[]
+  settlements     SellerSettlement[]
+
+  @@index([isActive])
+  @@index([isVerified])
+}
+
+model SellerBalance {
+  id              String   @id @default(uuid())
+  sellerId        String   @unique
+  pendingAmount   Decimal  @default(0) @db.Decimal(18, 2)
+  availableAmount Decimal  @default(0) @db.Decimal(18, 2)
+  paidAmount      Decimal  @default(0) @db.Decimal(18, 2)
+  updatedAt       DateTime @updatedAt
+  seller          Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@index([sellerId])
+}
+
+model SellerSettlement {
+  id          String           @id @default(uuid())
+  sellerId    String
+  orderId     String?
+  grossAmount Decimal          @db.Decimal(18, 2)
+  commission  Decimal          @default(0) @db.Decimal(18, 2)
+  platformFee Decimal          @default(0) @db.Decimal(18, 2)
+  refunds     Decimal          @default(0) @db.Decimal(18, 2)
+  adjustments Decimal          @default(0) @db.Decimal(18, 2)
+  netAmount   Decimal          @db.Decimal(18, 2)
+  status      SettlementStatus @default(PENDING)
+  eligibleAt  DateTime?
+  settledAt   DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  order       Order?           @relation(fields: [orderId], references: [id])
+  seller      Seller           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@unique([sellerId, orderId])
+  @@index([sellerId])
+  @@index([orderId])
+  @@index([status])
+  @@index([eligibleAt])
+}
+
+model SellerPayout {
+  id                String       @id @default(uuid())
+  sellerId          String
+  batchId           String?
+  amount            Decimal      @db.Decimal(18, 2)
+  status            PayoutStatus @default(PENDING)
+  provider          String?
+  providerReference String?
+  failureReason     String?
+  requestedAt       DateTime?
+  processedAt       DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  batch             PayoutBatch? @relation(fields: [batchId], references: [id])
+  seller            Seller       @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@index([sellerId])
+  @@index([batchId])
+  @@index([status])
+}
+
+model PayoutBatch {
+  id           String         @id @default(uuid())
+  reference    String         @unique
+  totalAmount  Decimal        @db.Decimal(18, 2)
+  sellerCount  Int
+  payoutCount  Int
+  status       PayoutStatus   @default(PENDING)
+  approvedById String?
+  approvedAt   DateTime?
+  processedAt  DateTime?
+  createdAt    DateTime       @default(now())
+  payouts      SellerPayout[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Review {
+  id                 String   @id @default(uuid())
+  productId          String
+  userId             String
+  rating             Int
+  title              String?
+  comment            String
+  isVerifiedPurchase Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  product            Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, userId])
+  @@index([productId])
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum CartStatus {
+  ACTIVE
+  CONVERTED
+  ABANDONED
 }
 
 enum OrderStatus {
@@ -201,64 +523,6 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
   FAILED
-}
-
-model Order {
-  id String @id @default(uuid())
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  status OrderStatus @default(PENDING)
-
-  subtotal    Decimal @db.Decimal(10, 2)
-  shippingFee Decimal @db.Decimal(10, 2)
-  total       Decimal @db.Decimal(10, 2)
-
-  // Shipping address, captured at time of order (not linked to a
-  // separate reusable Address model yet — keep it simple for v1)
-  fullName     String
-  phone        String
-  addressLine1 String
-  addressLine2 String?
-  city         String
-  state        String
-  postalCode   String?
-
-  paystackRef String?   @unique
-  paidAt      DateTime?
-
-  items                 OrderItem[]
-  giftReservations      GiftReservation[]
-  financialTransactions FinancialTransaction[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([status])
-  @@index([paystackRef])
-}
-
-model OrderItem {
-  id String @id @default(uuid())
-
-  orderId String
-  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
-  variantId String
-  variant   ProductVariant @relation(fields: [variantId], references: [id])
-
-  productName       String
-  variantName       String
-  quantity          Int
-  unitPrice         Decimal          @db.Decimal(10, 2)
-  giftReservationId String?
-  giftReservation   GiftReservation? @relation(fields: [giftReservationId], references: [id])
-
-  createdAt DateTime @default(now())
-
-  @@index([orderId])
 }
 
 enum WishlistType {
@@ -292,71 +556,6 @@ enum GiftReservationStatus {
   CANCELLED
 }
 
-model Wishlist {
-  id          String             @id @default(uuid())
-  customerId  String
-  customer    User               @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  name        String
-  slug        String             @unique
-  description String?
-  type        WishlistType       @default(PRIVATE)
-  visibility  WishlistVisibility @default(PRIVATE)
-  occasion    WishlistOccasion   @default(GENERAL)
-  shareToken  String?            @unique
-  expiresAt   DateTime?
-  items       WishlistItem[]
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-
-  @@index([customerId])
-}
-
-model WishlistItem {
-  id         String             @id @default(uuid())
-  wishlistId String
-  wishlist   Wishlist           @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
-  productId  String
-  product    Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variantId  String?
-  variant    ProductVariant?    @relation(fields: [variantId], references: [id])
-  quantity   Int                @default(1)
-  priority   Int                @default(0)
-  notes      String?
-  status     WishlistItemStatus @default(AVAILABLE)
-  addedAt    DateTime           @default(now())
-
-  reservations GiftReservation[]
-
-  @@unique([wishlistId, productId, variantId])
-  @@index([wishlistId])
-}
-
-model GiftReservation {
-  id             String                @id @default(uuid())
-  wishlistItemId String
-  wishlistItem   WishlistItem          @relation(fields: [wishlistItemId], references: [id], onDelete: Cascade)
-  buyerId        String?
-  buyer          User?                 @relation(fields: [buyerId], references: [id])
-  orderId        String?
-  order          Order?                @relation(fields: [orderId], references: [id])
-  status         GiftReservationStatus @default(RESERVED)
-  reservedAt     DateTime              @default(now())
-  expiresAt      DateTime
-  completedAt    DateTime?
-  cartItems      CartItem[]
-  orderItems     OrderItem[]
-
-  @@index([wishlistItemId])
-  @@index([status])
-}
-
-// ---------------------------------------------------------------------------
-// Finance foundation (Phase 1)
-// Ledger is the source of financial truth. Orders are not the accounting ledger.
-// Double-entry balance (sum debits === sum credits) is enforced in application
-// services within a database transaction — not by mutating historical rows.
-// ---------------------------------------------------------------------------
-
 enum FinancialAccountType {
   ASSET
   LIABILITY
@@ -371,8 +570,6 @@ enum FinancialAccountOwnerType {
   PLATFORM
   SYSTEM
   CUSTOMER
-  SELLER
-  RIDER
 }
 
 enum FinancialTransactionType {
@@ -388,94 +585,47 @@ enum FinancialTransactionStatus {
   CANCELLED
 }
 
-model FinancialAccount {
-  id        String                    @id @default(uuid())
-  code      String                    @unique
-  name      String
-  type      FinancialAccountType
-  ownerType FinancialAccountOwnerType @default(PLATFORM)
-  /// Polymorphic owner id (e.g. User.id when ownerType = CUSTOMER). No FK: Seller/Rider models do not exist yet.
-  ownerId   String?
-  currency  String                    @default("NGN")
-  isActive  Boolean                   @default(true)
-  createdAt DateTime                  @default(now())
-  updatedAt DateTime                  @updatedAt
-
-  ledgerEntries LedgerEntry[]
-
-  @@index([ownerType, ownerId])
-  @@index([type])
-  @@index([isActive])
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
 }
 
-model FinancialTransaction {
-  id                    String                     @id @default(uuid())
-  /// Unique immutable financial reference (never reuse for corrections — create a REVERSAL).
-  reference             String                     @unique
-  type                  FinancialTransactionType
-  status                FinancialTransactionStatus @default(PENDING)
-  description           String?
-  /// Optional link to existing Order (payment capture). Paystack state remains on Order until a Payment model exists.
-  orderId               String?
-  order                 Order?                     @relation(fields: [orderId], references: [id])
-  /// Idempotency for webhooks / retries — never create duplicate money movements.
-  idempotencyKey        String?                    @unique
-  createdByUserId       String?
-  createdByUser         User?                      @relation("FinancialTransactionCreatedBy", fields: [createdByUserId], references: [id])
-  /// When this transaction reverses another posted transaction (corrections — do not mutate history).
-  reversesTransactionId String?
-  reversesTransaction   FinancialTransaction?      @relation("FinancialTransactionReversal", fields: [reversesTransactionId], references: [id])
-  reversedBy            FinancialTransaction[]     @relation("FinancialTransactionReversal")
-  postedAt              DateTime?
-  createdAt             DateTime                   @default(now())
-  updatedAt             DateTime                   @updatedAt
-
-  ledgerEntries LedgerEntry[]
-
-  @@index([status])
-  @@index([type])
-  @@index([orderId])
-  @@index([createdByUserId])
-  @@index([reversesTransactionId])
-  @@index([postedAt])
-  @@index([createdAt])
+enum WalletTransactionType {
+  TOPUP
+  PAYMENT
+  REFUND
+  ADJUSTMENT
+  TRANSFER_IN
+  TRANSFER_OUT
 }
 
-/// One debit or credit line. A FinancialTransaction has many LedgerEntry rows.
-/// Exactly one of debit/credit must be positive (enforced in migration CHECK + services).
-/// No updatedAt — ledger lines are immutable after insert.
-model LedgerEntry {
-  id                     String               @id @default(uuid())
-  financialTransactionId String
-  financialTransaction   FinancialTransaction @relation(fields: [financialTransactionId], references: [id], onDelete: Restrict)
-  financialAccountId     String
-  financialAccount       FinancialAccount     @relation(fields: [financialAccountId], references: [id], onDelete: Restrict)
-  debit                  Decimal              @default(0) @db.Decimal(18, 2)
-  credit                 Decimal              @default(0) @db.Decimal(18, 2)
-  memo                   String?
-  /// Stable ordering of lines within a transaction (for display and deterministic posting).
-  lineNumber             Int                  @default(1)
-  createdAt              DateTime             @default(now())
-
-  @@unique([financialTransactionId, lineNumber])
-  @@index([financialTransactionId])
-  @@index([financialAccountId])
-  @@index([createdAt])
+enum SettlementCycle {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
 }
 
-model Review {
-  id                 String   @id @default(uuid())
-  productId          String
-  product            Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  userId             String
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rating             Int
-  title              String?
-  comment            String
-  isVerifiedPurchase Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+enum SettlementStatus {
+  PENDING
+  ELIGIBLE
+  PROCESSING
+  COMPLETED
+  FAILED
+  ON_HOLD
+  REVERSED
+}
 
-  @@unique([productId, userId])
-  @@index([productId])
+enum PayoutStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  COMPLETED
+  FAILED
+  REVERSED
 }
