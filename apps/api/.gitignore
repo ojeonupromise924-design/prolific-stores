@@ -55,10 +55,11 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# Local database backups — never commit (contains live user data & credentials)
+# Local database backups — never commit (contains live user data & credentials).
+# Patterns here are relative to apps/api/, so the migration exemption must be
+# "/prisma/migrations/..." — a leading-slash form, not "apps/api/prisma/...".
 *.sql
-!apps/api/prisma/migrations/**/*.sql
+!/prisma/migrations/**/*.sql
 apps/prolific_store_backup.sql
-
 
 /generated/prisma
