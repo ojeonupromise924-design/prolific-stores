@@ -68,8 +68,14 @@ export interface Order {
   items: OrderItem[];
 }
 
+/**
+ * Client checkout callback. This is a POST, not a GET: a GET must never
+ * change state, and a browser refresh or a prefetch could otherwise fire
+ * the payment capture twice. The server claims the order inside a single
+ * transaction, so a retry is a no-op rather than a double charge.
+ */
 export function verifyPayment(reference: string, accessToken: string | null) {
-  return api.get<Order>(`/orders/verify/${reference}`, accessToken);
+  return api.post<Order>(`/orders/verify/${reference}`, {}, accessToken);
 }
 
 export function getOrders(accessToken: string | null) {

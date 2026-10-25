@@ -61,7 +61,7 @@ export interface Order {
 }
 
 export function verifyPayment(reference: string, accessToken: string | null) {
-  return api.get<Order>(`/orders/verify/${reference}`, accessToken);
+  return api.post<Order>(`/orders/verify/${reference}`, {}, accessToken);
 }
 
 export function getOrders(accessToken: string | null) {

@@ -148,6 +148,68 @@ export class OrdersService {
     };
   }
 
+  /**
+   * Read-only. Tells the caller what state an order is in without touching
+   * it. This is what a GET must do — a page refresh or a link prefetch
+   * must never be able to move money.
+   */
+  async getPaymentStatus(reference: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { paystackRef: reference },
+      select: {
+        id: true,
+        status: true,
+        total: true,
+        paidAt: true,
+        createdAt: true,
+        payment: {
+          select: {
+            id: true,
+            status: true,
+            amount: true,
+            currency: true,
+            paystackRef: true,
+            paidAt: true,
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found for this reference');
+    }
+
+    // Once the payment has been captured, the only safe read is the stored
+    // state — never re-capture or mutate on a fetch. This closes the window
+    // where a concurrent execute could race against another caller.
+    if (order.status === 'PAID') {
+      return {
+        orderId: order.id,
+        status: order.status,
+        total: order.total,
+        paidAt: order.paidAt,
+        payment: order.payment,
+      };
+    }
+
+    return {
+      orderId: order.id,
+      status: order.status,
+      total: order.total,
+      paidAt: order.paidAt,
+      payment: order.payment,
+    };
+  }
+
+  /**
+   * Captures a payment. This is the ONLY path that moves money for an
+   * order, and it is safe to call from several places at once: the
+   * transaction claims the order with a conditional update, so exactly one
+   * caller wins and every other caller gets the already-paid order back.
+   *
+   * Callers: the Paystack webhook (the source of truth) and the customer's
+   * checkout callback (a fast path that does not wait for the webhook).
+   */
   async confirmPayment(reference: string) {
     const order = await this.prisma.order.findUnique({
       where: { paystackRef: reference },
@@ -427,11 +489,20 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    return this.prisma.order.update({
+    const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: { status: status as never },
       include: this.orderWithItemsInclude,
     });
+
+    // Delivery is what makes a seller's money payable. Promoting the
+    // settlement here is the event-driven trigger; the daily sweep in
+    // SettlementService is the safety net if this hook is ever missed.
+    if (status === 'DELIVERED') {
+      await this.settlementService.markEligible(orderId);
+    }
+
+    return updated;
   }
 
   async adminStats() {

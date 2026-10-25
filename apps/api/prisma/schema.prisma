@@ -284,6 +284,7 @@ enum RefundStatus {
   COMPLETED
   FAILED
   REJECTED
+  CANCELLED
 }
 
 enum ReconciliationStatus {
@@ -381,11 +382,15 @@ model Refund {
 
   order   Order?   @relation(fields: [orderId], references: [id])
   payment Payment? @relation(fields: [paymentId], references: [id])
+  // The ledger transaction that moved the money for this refund.
+  financialTransactionId String?
+  financialTransaction   FinancialTransaction? @relation(fields: [financialTransactionId], references: [id])
 
   @@index([orderId])
   @@index([paymentId])
   @@index([status])
   @@index([createdAt])
+  @@index([financialTransactionId])
 }
 
 /// One reconciliation run against a provider's settlement report.
@@ -484,6 +489,7 @@ model FinancialTransaction {
   reversesTransaction   FinancialTransaction?      @relation("FinancialTransactionReversal", fields: [reversesTransactionId], references: [id])
   reversedBy            FinancialTransaction[]     @relation("FinancialTransactionReversal")
   ledgerEntries         LedgerEntry[]
+  refunds               Refund[]
 
   @@index([status])
   @@index([type])
@@ -540,7 +546,10 @@ model Payment {
 
 model PaymentAttempt {
   id             String        @id @default(uuid())
-  paymentId      String
+  // NULL for attempts that are not tied to a customer payment (e.g. a payout
+  // disbursement). Exactly one of paymentId / payoutId is expected.
+  paymentId      String?
+  payoutId       String?
   provider       String        @default("paystack")
   paystackRef    String?       @unique
   amount         Decimal       @db.Decimal(18, 2)
@@ -549,9 +558,11 @@ model PaymentAttempt {
   failureMessage String?
   metadata       Json?
   createdAt      DateTime      @default(now())
-  payment        Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  payment        Payment?      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  payout         SellerPayout? @relation(fields: [payoutId], references: [id], onDelete: Cascade)
 
   @@index([paymentId])
+  @@index([payoutId])
   @@index([paystackRef])
 }
 
@@ -598,6 +609,9 @@ model Seller {
   accountName     String
   commissionRate  Decimal            @default(0.10) @db.Decimal(5, 4)
   settlementCycle SettlementCycle    @default(WEEKLY)
+  // Paystack transfer recipient code (created once per merchant). NULL until
+  // payout engine initialises recipients for this seller.
+  recipientCode    String?
   isActive        Boolean            @default(true)
   isVerified      Boolean            @default(false)
   createdAt       DateTime           @default(now())
@@ -643,6 +657,7 @@ model SellerSettlement {
   updatedAt   DateTime         @updatedAt
   order       Order?           @relation(fields: [orderId], references: [id])
   seller      Seller           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  payouts     SellerPayoutSettlement[]
 
   @@unique([sellerId, orderId])
   @@index([sellerId])
@@ -655,6 +670,7 @@ model SellerPayout {
   id                String       @id @default(uuid())
   sellerId          String
   batchId           String?
+  reference         String       @unique
   amount            Decimal      @db.Decimal(18, 2)
   status            PayoutStatus @default(PENDING)
   provider          String?
@@ -666,10 +682,25 @@ model SellerPayout {
   updatedAt         DateTime     @updatedAt
   batch             PayoutBatch? @relation(fields: [batchId], references: [id])
   seller            Seller       @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  settlements       SellerPayoutSettlement[]
+  attempts          PaymentAttempt[]
 
   @@index([sellerId])
   @@index([batchId])
   @@index([status])
+}
+
+/// Which settlements a single payout row settles. A payout pays out many
+/// settlements (one per order) for the same seller.
+model SellerPayoutSettlement {
+  payoutId     String
+  settlementId String
+  amount       Decimal       @db.Decimal(18, 2)
+  payout       SellerPayout  @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  settlement   SellerSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  @@id([payoutId, settlementId])
+  @@index([settlementId])
 }
 
 model PayoutBatch {
@@ -782,6 +813,9 @@ enum FinancialTransactionType {
   TRANSFER
   ADJUSTMENT
   REVERSAL
+  REFUND
+  PAYOUT
+  SETTLEMENT
 }
 
 enum FinancialTransactionStatus {

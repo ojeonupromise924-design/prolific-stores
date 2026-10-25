@@ -20,6 +20,16 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { ReviewsModule } from './reviews/reviews.module';
 
+// The money layer. Each of these is its own module so the dependency
+// graph stays acyclic: FinanceModule is the base (the ledger), and the
+// payout / refund / reconciliation modules build on top of it.
+import { FinanceModule } from './finance/finance.module';
+import { WalletModule } from './finance/wallet/wallet.module';
+import { AuditModule } from './finance/audit/audit.module';
+import { PayoutModule } from './finance/payouts/payout.module';
+import { RefundModule } from './finance/refunds/refund.module';
+import { ReconciliationModule } from './finance/reconciliation/reconciliation.module';
+
 @Module({
   imports: [
     ThrottlerModule.forRoot([
@@ -44,6 +54,13 @@ import { ReviewsModule } from './reviews/reviews.module';
     OrdersModule,
     WishlistModule,
     ReviewsModule,
+
+    FinanceModule,
+    WalletModule,
+    AuditModule,
+    PayoutModule,
+    RefundModule,
+    ReconciliationModule,
   ],
 
   controllers: [AppController],

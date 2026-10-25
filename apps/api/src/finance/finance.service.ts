@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, FinancialTransactionType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AccountCode } from './constants/account-codes';
 
@@ -17,11 +17,21 @@ type LedgerLine = {
 
 interface PostTransactionParams {
   reference: string;
-  type: 'PAYMENT_CAPTURE' | 'TRANSFER' | 'ADJUSTMENT' | 'REVERSAL';
+  type:
+    | 'PAYMENT_CAPTURE'
+    | 'TRANSFER'
+    | 'ADJUSTMENT'
+    | 'REVERSAL'
+    | 'REFUND'
+    | 'PAYOUT'
+    | 'SETTLEMENT';
   description?: string;
   orderId?: string;
   idempotencyKey?: string;
   createdByUserId?: string;
+  /// Links a correction to the transaction it reverses. History is never
+  /// edited — a correction is a new transaction pointing backwards.
+  reversesTransactionId?: string;
   lines: LedgerLine[];
 }
 
@@ -82,6 +92,7 @@ export class FinanceService {
           orderId: params.orderId,
           idempotencyKey: params.idempotencyKey,
           createdByUserId: params.createdByUserId,
+          reversesTransactionId: params.reversesTransactionId,
           status: 'POSTED',
           postedAt: new Date(),
           ledgerEntries: {
@@ -103,6 +114,45 @@ export class FinanceService {
 
     return this.prisma.$transaction(write, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  }
+
+  /**
+   * Posts the exact opposite of an existing transaction.
+   *
+   * History is never edited: a correction is a new REVERSAL that points
+   * back at the transaction it undoes, so the ledger stays append-only and
+   * the original mistake is still visible.
+   */
+  async reverseTransaction(
+    original: { id: string; reference: string; type: FinancialTransactionType },
+    reason: string,
+    actorId?: string,
+  ) {
+    const entries = await this.prisma.ledgerEntry.findMany({
+      where: { financialTransactionId: original.id },
+      include: { financialAccount: { select: { code: true } } },
+    });
+
+    if (entries.length === 0) {
+      throw new BadRequestException(
+        `Transaction ${original.reference} has no ledger entries to reverse`,
+      );
+    }
+
+    return this.postTransaction({
+      reference: `REV_${original.reference}`,
+      type: 'REVERSAL',
+      description: reason,
+      idempotencyKey: `reversal_${original.id}`,
+      createdByUserId: actorId,
+      reversesTransactionId: original.id,
+      lines: entries.map((e) => ({
+        accountCode: e.financialAccount.code,
+        debit: e.credit,
+        credit: e.debit,
+        memo: `Reversal of ${original.reference}`,
+      })),
     });
   }
 

@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CommissionService } from '../commissions/commission.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 export interface OrderSplit {
   itemsTotal: Decimal;
@@ -21,7 +23,12 @@ interface SplittableOrder {
 
 @Injectable()
 export class SettlementService {
-  constructor(private readonly commissionService: CommissionService) {}
+  private readonly logger = new Logger(SettlementService.name);
+
+  constructor(
+    private readonly commissionService: CommissionService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * Must be called inside the payment transaction. Creates one settlement
@@ -78,7 +85,8 @@ export class SettlementService {
             grossAmount: gross,
             commission,
             netAmount: net,
-            // Not payable until delivery; eligibleAt is set by a later step.
+            // Not payable until the order is delivered; eligibleAt is set by
+            // markEligible() when that happens.
             status: seller.isActive ? 'PENDING' : 'ON_HOLD',
           },
         });
@@ -95,5 +103,139 @@ export class SettlementService {
     }
 
     return { itemsTotal, platformSalesTotal, commissionTotal, sellerNetTotal };
+  }
+
+  /**
+   * Promotes a settlement from PENDING to ELIGIBLE and moves the money from
+   * the seller's pending bucket into their available bucket.
+   *
+   * This is the single place where money becomes payable. It is deliberately
+   * NOT derived from `order.status === 'DELIVERED'` at read time — a
+   * settlement that has been promoted stays promoted even if the order is
+   * later edited, and a settlement is only ever promoted once.
+   *
+   * Safe to call twice: the second call is a no-op.
+   */
+  async markEligible(
+    orderId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    const run = async (client: Prisma.TransactionClient) => {
+      const settlements = await client.sellerSettlement.findMany({
+        where: { orderId, status: 'PENDING', eligibleAt: null },
+      });
+
+      if (settlements.length === 0) return 0;
+
+      for (const settlement of settlements) {
+        await client.sellerSettlement.update({
+          where: { id: settlement.id },
+          data: { status: 'ELIGIBLE', eligibleAt: new Date() },
+        });
+
+        // Pending -> Available on the operational balance. The ledger
+        // (SELLER_PAYABLE) is untouched: this is only a bucket move.
+        await client.sellerBalance.update({
+          where: { sellerId: settlement.sellerId },
+          data: {
+            pendingAmount: { decrement: settlement.netAmount },
+            availableAmount: { increment: settlement.netAmount },
+          },
+        });
+      }
+
+      return settlements.length;
+    };
+
+    if (tx) return run(tx);
+    return this.prisma.$transaction(run, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  }
+
+  /**
+   * Safety net for the event-driven path. The primary trigger is the order
+   * reaching DELIVERED, but if that event was missed (a failed update, a
+   * crashed process, a manually edited order) the settlement would sit in
+   * PENDING forever and the seller would never be paid.
+   *
+   * This sweep promotes any settlement whose order is already delivered.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  async sweepUnpromotedSettlements(): Promise<void> {
+    try {
+      const candidates = await this.prisma.sellerSettlement.findMany({
+        where: { status: 'PENDING', eligibleAt: null, orderId: { not: null } },
+        select: { orderId: true },
+        take: 500,
+      });
+
+      let promoted = 0;
+
+      for (const candidate of candidates) {
+        const order = await this.prisma.order.findUnique({
+          where: { id: candidate.orderId! },
+          select: { status: true },
+        });
+
+        if (order?.status !== 'DELIVERED') continue;
+
+        const count = await this.markEligible(candidate.orderId!);
+        promoted += count;
+      }
+
+      if (promoted > 0) {
+        this.logger.log(
+          `Settlement sweep promoted ${promoted} settlement(s) to ELIGIBLE`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        'Settlement eligibility sweep failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /**
+   * Moves eligible settlements into PROCESSING when they are pulled into a
+   * payout batch. Called by the payout engine.
+   */
+  async markProcessing(
+    tx: Prisma.TransactionClient,
+    settlementIds: string[],
+  ): Promise<void> {
+    if (settlementIds.length === 0) return;
+    await tx.sellerSettlement.updateMany({
+      where: { id: { in: settlementIds } },
+      data: { status: 'PROCESSING' },
+    });
+  }
+
+  /**
+   * Returns settlements to the available bucket when a payout for them fails.
+   * The seller's money must never be silently lost — a failed disbursement
+   * puts the money back where it can be retried.
+   *
+   * Balance flow: PENDING -> (eligible) -> AVAILABLE -> (batch built)
+   * -> PROCESSING -> COMPLETED, or back to AVAILABLE if the payout fails.
+   */
+  async releaseToAvailable(
+    tx: Prisma.TransactionClient,
+    settlements: Array<{ id: string; sellerId: string; netAmount: Decimal }>,
+  ): Promise<void> {
+    for (const settlement of settlements) {
+      await tx.sellerSettlement.update({
+        where: { id: settlement.id },
+        data: { status: 'ELIGIBLE' },
+      });
+
+      await tx.sellerBalance.update({
+        where: { sellerId: settlement.sellerId },
+        data: {
+          availableAmount: { increment: settlement.netAmount },
+        },
+      });
+    }
   }
 }

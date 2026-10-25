@@ -43,12 +43,26 @@ export class OrdersController {
     return this.ordersService.createOrder(req.user.id, dto);
   }
 
+  /**
+   * Read-only payment status. Safe to poll, refresh, or prefetch — it
+   * never changes anything.
+   */
   @UseGuards(JwtAuthGuard)
   @Get('verify/:reference')
-  async verifyPayment(
-    @Param('reference') reference: string,
-    //@Request() req: AuthenticatedRequest,
-  ) {
+  getPaymentStatus(@Param('reference') reference: string) {
+    return this.ordersService.getPaymentStatus(reference);
+  }
+
+  /**
+   * Captures the payment. This is a POST because it moves money: a GET
+   * that mutates state is a bug waiting to happen (browser prefetch,
+   * link previewers, a double refresh). The capture itself is
+   * idempotent — the order is claimed inside a transaction, so a repeat
+   * call returns the already-paid order instead of charging twice.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('verify/:reference')
+  async verifyPayment(@Param('reference') reference: string) {
     // Both webhook and checkout callback now use the SAME complete method
     return this.ordersService.confirmPayment(reference);
   }

@@ -1,11 +1,11 @@
-import { Module, forwardRef } from '@nestjs/common';
-import { WalletService } from './wallet.service';
+import { Module } from '@nestjs/common';
 import { WalletController } from './wallet.controller';
+import { WalletService } from './wallet.service';
 import { PrismaModule } from '../../prisma/prisma.module';
-import { FinanceModule } from '../finance.module'; // for FinanceService
+import { FinanceModule } from '../finance.module';
 
 @Module({
-  imports: [PrismaModule, forwardRef(() => FinanceModule)],
+  imports: [PrismaModule, FinanceModule],
   controllers: [WalletController],
   providers: [WalletService],
   exports: [WalletService],
