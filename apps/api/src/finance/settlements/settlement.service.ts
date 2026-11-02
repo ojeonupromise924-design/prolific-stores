@@ -180,8 +180,16 @@ export class SettlementService {
 
         if (order?.status !== 'DELIVERED') continue;
 
-        const count = await this.markEligible(candidate.orderId!);
-        promoted += count;
+        try {
+          const count = await this.markEligible(candidate.orderId!);
+          promoted += count;
+        } catch (error) {
+          // One bad settlement must not block every settlement after it
+          this.logger.error(
+            `Could not promote settlements for order ${candidate.orderId}`,
+            error instanceof Error ? error.stack : String(error),
+          );
+        }
       }
 
       if (promoted > 0) {

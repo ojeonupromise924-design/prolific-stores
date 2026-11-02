@@ -164,9 +164,9 @@ model Order {
   items                 OrderItem[]
   payment               Payment?
   sellerSettlements     SellerSettlement[]
-  refunds                Refund[]
-  commissions            Commission[]
-  fees                   Fee[]
+  refunds               Refund[]
+  commissions           Commission[]
+  fees                  Fee[]
 
   @@index([userId])
   @@index([status])
@@ -248,7 +248,6 @@ model GiftReservation {
   @@index([wishlistItemId])
   @@index([status])
 }
-
 
 /// Business classification of a money movement — used for reporting,
 /// complementary to FinancialTransactionType (how it moved through the ledger).
@@ -380,8 +379,8 @@ model Refund {
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
-  order   Order?   @relation(fields: [orderId], references: [id])
-  payment Payment? @relation(fields: [paymentId], references: [id])
+  order                  Order?                @relation(fields: [orderId], references: [id])
+  payment                Payment?              @relation(fields: [paymentId], references: [id])
   // The ledger transaction that moved the money for this refund.
   financialTransactionId String?
   financialTransaction   FinancialTransaction? @relation(fields: [financialTransactionId], references: [id])
@@ -447,6 +446,7 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
 }
+
 model FinancialAccount {
   id            String                    @id @default(uuid())
   code          String                    @unique
@@ -538,7 +538,7 @@ model Payment {
   updatedAt       DateTime         @updatedAt
   order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
   paymentAttempts PaymentAttempt[]
-  refunds          Refund[]
+  refunds         Refund[]
 
   @@index([status])
   @@index([paidAt])
@@ -611,7 +611,7 @@ model Seller {
   settlementCycle SettlementCycle    @default(WEEKLY)
   // Paystack transfer recipient code (created once per merchant). NULL until
   // payout engine initialises recipients for this seller.
-  recipientCode    String?
+  recipientCode   String?
   isActive        Boolean            @default(true)
   isVerified      Boolean            @default(false)
   createdAt       DateTime           @default(now())
@@ -641,22 +641,22 @@ model SellerBalance {
 }
 
 model SellerSettlement {
-  id          String           @id @default(uuid())
+  id          String                   @id @default(uuid())
   sellerId    String
   orderId     String?
-  grossAmount Decimal          @db.Decimal(18, 2)
-  commission  Decimal          @default(0) @db.Decimal(18, 2)
-  platformFee Decimal          @default(0) @db.Decimal(18, 2)
-  refunds     Decimal          @default(0) @db.Decimal(18, 2)
-  adjustments Decimal          @default(0) @db.Decimal(18, 2)
-  netAmount   Decimal          @db.Decimal(18, 2)
-  status      SettlementStatus @default(PENDING)
+  grossAmount Decimal                  @db.Decimal(18, 2)
+  commission  Decimal                  @default(0) @db.Decimal(18, 2)
+  platformFee Decimal                  @default(0) @db.Decimal(18, 2)
+  refunds     Decimal                  @default(0) @db.Decimal(18, 2)
+  adjustments Decimal                  @default(0) @db.Decimal(18, 2)
+  netAmount   Decimal                  @db.Decimal(18, 2)
+  status      SettlementStatus         @default(PENDING)
   eligibleAt  DateTime?
   settledAt   DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  order       Order?           @relation(fields: [orderId], references: [id])
-  seller      Seller           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  order       Order?                   @relation(fields: [orderId], references: [id])
+  seller      Seller                   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   payouts     SellerPayoutSettlement[]
 
   @@unique([sellerId, orderId])
@@ -667,21 +667,21 @@ model SellerSettlement {
 }
 
 model SellerPayout {
-  id                String       @id @default(uuid())
+  id                String                   @id @default(uuid())
   sellerId          String
   batchId           String?
-  reference         String       @unique
-  amount            Decimal      @db.Decimal(18, 2)
-  status            PayoutStatus @default(PENDING)
+  reference         String                   @unique
+  amount            Decimal                  @db.Decimal(18, 2)
+  status            PayoutStatus             @default(PENDING)
   provider          String?
   providerReference String?
   failureReason     String?
   requestedAt       DateTime?
   processedAt       DateTime?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
-  batch             PayoutBatch? @relation(fields: [batchId], references: [id])
-  seller            Seller       @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  batch             PayoutBatch?             @relation(fields: [batchId], references: [id])
+  seller            Seller                   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   settlements       SellerPayoutSettlement[]
   attempts          PaymentAttempt[]
 
@@ -695,8 +695,8 @@ model SellerPayout {
 model SellerPayoutSettlement {
   payoutId     String
   settlementId String
-  amount       Decimal       @db.Decimal(18, 2)
-  payout       SellerPayout  @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  amount       Decimal          @db.Decimal(18, 2)
+  payout       SellerPayout     @relation(fields: [payoutId], references: [id], onDelete: Cascade)
   settlement   SellerSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
 
   @@id([payoutId, settlementId])

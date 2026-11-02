@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
@@ -18,6 +19,13 @@ import { SettlementService } from '../finance/settlements/settlement.service';
 
 const FREE_SHIPPING_THRESHOLD = 25000;
 const FLAT_SHIPPING_FEE = 3000;
+const ADMIN_ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  PENDING: ['CANCELLED'],
+  FAILED: ['CANCELLED'],
+  PAID: ['PROCESSING', 'SHIPPED'],
+  PROCESSING: ['SHIPPED'],
+  SHIPPED: ['DELIVERED'],
+};
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 @Injectable()
@@ -153,11 +161,12 @@ export class OrdersService {
    * it. This is what a GET must do — a page refresh or a link prefetch
    * must never be able to move money.
    */
-  async getPaymentStatus(reference: string) {
+  async getPaymentStatus(reference: string, requesterId: string) {
     const order = await this.prisma.order.findUnique({
       where: { paystackRef: reference },
       select: {
         id: true,
+        userId: true,
         status: true,
         total: true,
         paidAt: true,
@@ -177,6 +186,10 @@ export class OrdersService {
 
     if (!order) {
       throw new NotFoundException('Order not found for this reference');
+    }
+
+    if (order.userId !== requesterId) {
+      throw new ForbiddenException('You do not have access to this order');
     }
 
     // Once the payment has been captured, the only safe read is the stored
@@ -210,24 +223,28 @@ export class OrdersService {
    * Callers: the Paystack webhook (the source of truth) and the customer's
    * checkout callback (a fast path that does not wait for the webhook).
    */
-  async confirmPayment(reference: string) {
+  async confirmPayment(reference: string, requesterId?: string) {
     const order = await this.prisma.order.findUnique({
       where: { paystackRef: reference },
       include: { items: true, user: true },
     });
 
-    if (!order) {
+    // The webhook passes no requesterId; a customer call must own the order
+    if (!order || (requesterId && order.userId !== requesterId)) {
       throw new NotFoundException('Order not found for this reference');
     }
 
-    if (order.status === 'PAID') {
-      return order;
+    // Only an unpaid order can be captured. A PAID, PROCESSING, SHIPPED,
+    // DELIVERED or CANCELLED order must never be touched by a replayed
+    // webhook or a second callback.
+    if (order.status !== 'PENDING' && order.status !== 'FAILED') {
+      return this.prisma.order.findUniqueOrThrow({ where: { id: order.id } });
     }
 
     const verification =
       await this.paystackService.verifyTransaction(reference);
 
-    if (verification.status !== 'success') {
+    if (verification.status === 'failed') {
       await this.prisma.order.update({
         where: { id: order.id },
         data: { status: 'FAILED' },
@@ -235,6 +252,9 @@ export class OrdersService {
       throw new BadRequestException(
         `Payment was not successful: ${verification.gateway_response}`,
       );
+    }
+    if (verification.status !== 'success') {
+      throw new BadRequestException('Payment has not been completed yet');
     }
 
     const expectedKobo = Math.round(Number(order.total) * 100);
@@ -249,7 +269,7 @@ export class OrdersService {
         // 1. Claim the order. If the webhook and the checkout callback
         //    arrive together, only one of them gets past this line.
         const claimed = await tx.order.updateMany({
-          where: { id: order.id, status: { not: 'PAID' } },
+          where: { id: order.id, status: { in: ['PENDING', 'FAILED'] } },
           data: { status: 'PAID', paidAt: new Date() },
         });
         if (claimed.count === 0) return null;
@@ -382,15 +402,25 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    if (['SHIPPED', 'DELIVERED', 'CANCELLED'].includes(order.status)) {
+    if (order.status !== 'PENDING' && order.status !== 'FAILED') {
       throw new BadRequestException(
-        `Orders that are ${order.status.toLowerCase()} can no longer be cancelled`,
+        order.status === 'CANCELLED'
+          ? 'This order is already cancelled'
+          : 'This order has been paid. Please contact support to request a cancellation and refund.',
       );
     }
 
-    return this.prisma.order.update({
-      where: { id: orderId },
+    // Conditional update: if a payment lands at the same moment, only one wins.
+    const result = await this.prisma.order.updateMany({
+      where: { id: orderId, userId, status: { in: ['PENDING', 'FAILED'] } },
       data: { status: 'CANCELLED' },
+    });
+    if (result.count === 0) {
+      throw new BadRequestException('This order can no longer be cancelled');
+    }
+
+    return this.prisma.order.findUniqueOrThrow({
+      where: { id: orderId },
       include: this.orderWithItemsInclude,
     });
   }
@@ -489,10 +519,16 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
+    const allowed = ADMIN_ALLOWED_TRANSITIONS[order.status] ?? [];
+    if (!allowed.includes(status)) {
+      throw new BadRequestException(
+        `An order that is ${order.status} cannot be changed to ${status}`,
+      );
+    }
+
     const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: { status: status as never },
-      include: this.orderWithItemsInclude,
     });
 
     // Delivery is what makes a seller's money payable. Promoting the

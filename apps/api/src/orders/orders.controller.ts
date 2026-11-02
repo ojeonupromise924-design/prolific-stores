@@ -13,7 +13,7 @@ import {
   Patch,
 } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
-import { createHmac } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import type { Request as ExpressRequest } from 'express';
 
 import { OrdersService } from './orders.service';
@@ -47,10 +47,14 @@ export class OrdersController {
    * Read-only payment status. Safe to poll, refresh, or prefetch — it
    * never changes anything.
    */
+
   @UseGuards(JwtAuthGuard)
   @Get('verify/:reference')
-  getPaymentStatus(@Param('reference') reference: string) {
-    return this.ordersService.getPaymentStatus(reference);
+  getPaymentStatus(
+    @Req() req: AuthenticatedRequest,
+    @Param('reference') reference: string,
+  ) {
+    return this.ordersService.getPaymentStatus(reference, req.user.id);
   }
 
   /**
@@ -62,9 +66,11 @@ export class OrdersController {
    */
   @UseGuards(JwtAuthGuard)
   @Post('verify/:reference')
-  async verifyPayment(@Param('reference') reference: string) {
-    // Both webhook and checkout callback now use the SAME complete method
-    return this.ordersService.confirmPayment(reference);
+  verifyPayment(
+    @Req() req: AuthenticatedRequest,
+    @Param('reference') reference: string,
+  ) {
+    return this.ordersService.confirmPayment(reference, req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -85,12 +91,21 @@ export class OrdersController {
     @Req() req: RawBodyRequest<AuthenticatedRequest>,
     @Headers('x-paystack-signature') signature: string,
   ) {
-    const secret = process.env.PAYSTACK_SECRET_KEY!;
+    const secret = process.env.PAYSTACK_SECRET_KEY;
+    if (!secret || !req.rawBody) {
+      throw new UnauthorizedException('Webhook cannot be verified');
+    }
+
     const expectedSignature = createHmac('sha512', secret)
-      .update(req.rawBody ?? Buffer.from(''))
+      .update(req.rawBody)
       .digest('hex');
 
-    if (signature !== expectedSignature) {
+    const received = Buffer.from(signature ?? '', 'utf8');
+    const expected = Buffer.from(expectedSignature, 'utf8');
+    if (
+      received.length !== expected.length ||
+      !timingSafeEqual(received, expected)
+    ) {
       throw new UnauthorizedException('Invalid webhook signature');
     }
 

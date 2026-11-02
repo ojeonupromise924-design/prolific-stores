@@ -17,7 +17,10 @@ export class RolesGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     // 2. Fetch the required roles from the route metadata safely with generics
-    const roles = this.reflector.get<string[]>('roles', context.getHandler());
+    const roles = this.reflector.getAllAndOverride<string[]>('roles', [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     if (!roles) {
       return true;

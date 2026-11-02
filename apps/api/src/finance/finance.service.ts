@@ -64,17 +64,31 @@ export class FinanceService {
     params: PostTransactionParams,
     tx?: Prisma.TransactionClient,
   ) {
+    if (params.lines.length < 2) {
+      throw new BadRequestException(
+        'A ledger transaction needs at least two lines',
+      );
+    }
+
     let totalDebit = new Decimal(0);
     let totalCredit = new Decimal(0);
 
     for (const line of params.lines) {
       const debit = new Decimal(line.debit ?? 0);
       const credit = new Decimal(line.credit ?? 0);
-      if (debit.isNegative() || credit.isNegative()) {
-        throw new BadRequestException('Ledger amounts cannot be negative');
+      if (debit.gt(0) && credit.gt(0)) {
+        throw new BadRequestException(
+          'A ledger line cannot have both a debit and a credit',
+        );
       }
       totalDebit = totalDebit.plus(debit);
       totalCredit = totalCredit.plus(credit);
+    }
+
+    if (totalDebit.isZero()) {
+      throw new BadRequestException(
+        'Ledger transaction total must be greater than zero',
+      );
     }
 
     if (!totalDebit.equals(totalCredit)) {

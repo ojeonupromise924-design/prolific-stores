@@ -28,7 +28,18 @@ export default function CheckoutCallbackPage() {
         }
         return verifyPayment(reference, accessToken);
       })
-      .then(async () => {
+      .then(async (result: unknown) => {
+        const body = result as
+          | { status?: string; data?: { status?: string } }
+          | null
+          | undefined;
+        const orderStatus = body?.status ?? body?.data?.status;
+        const paidStatuses = ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'];
+        if (!orderStatus || !paidStatuses.includes(orderStatus)) {
+          throw new Error(
+            `We could not confirm this payment${reference ? ` (reference ${reference})` : ''}. If you were charged, please contact support with this reference.`,
+          );
+        }
         setStatus('success');
         await fetchCart();
       })

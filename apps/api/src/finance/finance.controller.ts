@@ -1,5 +1,7 @@
 import {
   Controller,
+  BadRequestException,
+  NotFoundException,
   Get,
   Post,
   Body,
@@ -58,7 +60,9 @@ export class FinanceController {
       refundsValue,
     ] = await Promise.all([
       this.prisma.order.aggregate({
-        where: { status: { in: ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'] } },
+        where: {
+          status: { in: ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'] },
+        },
         _sum: { total: true },
       }),
       this.balanceOf('2000'),
@@ -117,8 +121,8 @@ export class FinanceController {
     @Query('page') page = '1',
     @Query('limit') limit = '50',
   ) {
-    const pageNumber = Number(page);
-    const limitNumber = Number(limit);
+    const pageNumber = Math.max(Number(page) || 1, 1);
+    const limitNumber = Math.min(Math.max(Number(limit) || 20, 1), 100);
 
     const where = {
       ...(type ? { type: type as never } : {}),
@@ -133,7 +137,11 @@ export class FinanceController {
         take: limitNumber,
         include: {
           ledgerEntries: {
-            include: { financialAccount: { select: { code: true, name: true, type: true } } },
+            include: {
+              financialAccount: {
+                select: { code: true, name: true, type: true },
+              },
+            },
           },
           order: { select: { id: true, total: true, status: true } },
         },
@@ -158,14 +166,18 @@ export class FinanceController {
       where: { id },
       include: {
         ledgerEntries: {
-          include: { financialAccount: { select: { code: true, name: true, type: true } } },
+          include: {
+            financialAccount: {
+              select: { code: true, name: true, type: true },
+            },
+          },
         },
         order: { select: { id: true, total: true, status: true } },
       },
     });
 
     if (!transaction) {
-      return { error: 'Transaction not found' };
+      throw new NotFoundException('Transaction not found');
     }
 
     return transaction;
@@ -187,13 +199,19 @@ export class FinanceController {
         },
       }),
       this.prisma.sellerBalance.findUnique({ where: { sellerId } }),
-      this.prisma.sellerSettlement.count({ where: { sellerId, status: 'ELIGIBLE' } }),
-      this.prisma.sellerPayout.count({ where: { sellerId, status: 'APPROVED' } }),
-      this.prisma.sellerSettlement.count({ where: { sellerId, status: 'PENDING' } }),
+      this.prisma.sellerSettlement.count({
+        where: { sellerId, status: 'ELIGIBLE' },
+      }),
+      this.prisma.sellerPayout.count({
+        where: { sellerId, status: 'APPROVED' },
+      }),
+      this.prisma.sellerSettlement.count({
+        where: { sellerId, status: 'PENDING' },
+      }),
     ]);
 
     if (!seller) {
-      return { error: 'Seller not found' };
+      throw new NotFoundException('Seller not found');
     }
 
     return {
@@ -217,8 +235,8 @@ export class FinanceController {
     @Query('page') page = '1',
     @Query('limit') limit = '20',
   ) {
-    const pageNumber = Number(page);
-    const limitNumber = Number(limit);
+    const pageNumber = Math.max(Number(page) || 1, 1);
+    const limitNumber = Math.min(Math.max(Number(limit) || 20, 1), 100);
 
     const where = {
       sellerId,
@@ -258,7 +276,9 @@ export class FinanceController {
         batch: { select: { id: true, reference: true, status: true } },
         settlements: {
           include: {
-            settlement: { select: { id: true, orderId: true, netAmount: true } },
+            settlement: {
+              select: { id: true, orderId: true, netAmount: true },
+            },
           },
         },
       },
@@ -266,6 +286,7 @@ export class FinanceController {
   }
 
   @Post('transactions/manual')
+  @Roles('SUPER_ADMIN')
   manualTransaction(
     @Body()
     body: {
@@ -281,6 +302,10 @@ export class FinanceController {
     },
     @Request() req: AuthenticatedRequest,
   ) {
+    if (body.type !== 'TRANSFER' && body.type !== 'ADJUSTMENT') {
+      throw new BadRequestException('type must be TRANSFER or ADJUSTMENT');
+    }
+
     return this.finance.postTransaction({
       ...body,
       createdByUserId: req.user.id,
